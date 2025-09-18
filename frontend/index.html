@@ -276,6 +276,25 @@
             opacity: 1;
         }
 
+        .delete-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 4rem;
+            background: var(--danger-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: var(--transition);
+        }
+
+        .delete-btn:hover {
+            opacity: 1;
+        }
+
         .hidden {
             display: none !important;
         }
@@ -477,6 +496,19 @@
         <div id="retrieve-view" class="card hidden">
             <h2 style="margin-bottom: 1.5rem;">Retrieve Secret</h2>
             
+            <!-- Click to View Section -->
+            <div id="click-to-view" class="hidden">
+                <div class="alert alert-info">
+                    <strong>Ready to view secret</strong><br>
+                    Click the button below to retrieve and view the secret. This action will count as one view.
+                </div>
+                
+                <button onclick="viewSecret()" class="btn btn-primary btn-full">
+                    <span id="view-spinner" class="spinner hidden"></span>
+                    <span id="view-text">Click to View Secret</span>
+                </button>
+            </div>
+            
             <div id="password-prompt" class="hidden">
                 <div class="alert alert-warning">
                     This secret is password protected. Enter the password to decrypt it.
@@ -502,6 +534,7 @@
                     <label>Decrypted Message</label>
                     <div class="code-block">
                         <button class="copy-btn" onclick="copyToClipboard('decrypted-secret')">Copy</button>
+                        <button class="delete-btn" onclick="deleteSecret()" title="Permanently delete this secret">Delete</button>
                         <div id="decrypted-secret"></div>
                     </div>
                 </div>

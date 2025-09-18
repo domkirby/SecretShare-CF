@@ -459,17 +459,44 @@
             showNotification(instructions, 'info', 3000);
         }
 
-        // Secret retrieval function
+        // Secret retrieval function - now just prepares the UI for click-to-view
         async function retrieveSecret(secretId, encryptionKey = null) {
+            const clickToView = document.getElementById('click-to-view');
+            const passwordPrompt = document.getElementById('password-prompt');
+            const secretContent = document.getElementById('secret-content');
+            const statusElement = document.getElementById('retrieve-status');
+            
+            // Reset UI state - show only the "click to view" button
+            clickToView.classList.remove('hidden');
+            passwordPrompt.classList.add('hidden');
+            secretContent.classList.add('hidden');
+            statusElement.classList.add('hidden');
+            
+            // Store the parameters for when user clicks "view secret"
+            window.pendingSecretRetrieval = {
+                secretId: secretId,
+                encryptionKey: encryptionKey
+            };
+        }
+
+        // New function to actually retrieve and process the secret
+        async function viewSecret() {
             const statusElement = document.getElementById('retrieve-status');
             const statusText = document.getElementById('retrieve-status-text');
             const passwordPrompt = document.getElementById('password-prompt');
             const secretContent = document.getElementById('secret-content');
+            const clickToView = document.getElementById('click-to-view');
+            const viewSpinner = document.getElementById('view-spinner');
+            const viewText = document.getElementById('view-text');
             
-            // Reset UI state
+            // Get stored parameters
+            const { secretId, encryptionKey } = window.pendingSecretRetrieval;
+            
+            // Show loading state
+            clickToView.classList.add('hidden');
             statusElement.classList.remove('hidden');
-            passwordPrompt.classList.add('hidden');
-            secretContent.classList.add('hidden');
+            viewSpinner.classList.remove('hidden');
+            viewText.textContent = 'Retrieving...';
             statusText.textContent = 'Retrieving secret...';
             
             try {
@@ -580,7 +607,14 @@
             } catch (error) {
                 console.error('Secret retrieval failed:', error);
                 statusElement.classList.add('hidden');
+                viewSpinner.classList.add('hidden');
+                viewText.textContent = 'Click to View Secret';
+                clickToView.classList.remove('hidden');
                 showError(`Failed to retrieve secret: ${error.message}`);
+            } finally {
+                // Reset button state
+                viewSpinner.classList.add('hidden');
+                viewText.textContent = 'Click to View Secret';
             }
         }
         
@@ -840,6 +874,65 @@
                 showError(`Failed to create secret: ${error.message}`);
             }
         });
+
+        // Function to delete the current secret
+        async function deleteSecret() {
+            if (!window.pendingSecretRetrieval || !window.pendingSecretRetrieval.secretId) {
+                showError('No secret to delete.');
+                return;
+            }
+
+            // Show confirmation dialog
+            const confirmDelete = confirm(
+                'Are you sure you want to permanently delete this secret? This action cannot be undone.'
+            );
+
+            if (!confirmDelete) {
+                return;
+            }
+
+            const { secretId } = window.pendingSecretRetrieval;
+
+            try {
+                // Get CSRF token
+                const csrfToken = await getCSRFToken();
+
+                // Call delete API
+                const response = await apiCall(`${API_BASE_URL}/api/delete`, {
+                    method: 'DELETE',
+                    body: JSON.stringify({
+                        secretId: secretId,
+                        csrfToken: csrfToken
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    if (response.status === 404) {
+                        throw new Error('Secret not found. It may have already been deleted or expired.');
+                    } else {
+                        const errorMessage = handleApiError(response, 'Failed to delete secret');
+                        throw new Error(errorData.error || errorMessage);
+                    }
+                }
+
+                // Success - show confirmation and redirect
+                showError('Secret has been permanently deleted.', 'success');
+                
+                // Clear stored data
+                window.pendingSecretRetrieval = null;
+                window.currentSecretData = null;
+
+                // Redirect to home after a short delay
+                setTimeout(() => {
+                    window.location.hash = '';
+                }, 2000);
+
+            } catch (error) {
+                console.error('Secret deletion failed:', error);
+                showError(`Failed to delete secret: ${error.message}`);
+            }
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
