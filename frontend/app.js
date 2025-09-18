@@ -422,10 +422,10 @@
         function isValidEncryptionKey(key) {
             if (!key || typeof key !== 'string') return false;
             
-            // Basic validation - check if it looks like a base64 key
-            // Real keys should be base64 encoded and reasonably long
-            const base64Pattern = /^[A-Za-z0-9+/]+=*$/;
-            return key.length >= 32 && base64Pattern.test(key);
+            // Basic validation - check if it looks like a base64url key
+            // Real keys should be base64url encoded and reasonably long
+            const base64urlPattern = /^[A-Za-z0-9_-]+$/;
+            return key.length >= 32 && base64urlPattern.test(key);
         }
 
         /**

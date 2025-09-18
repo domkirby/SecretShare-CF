@@ -69,9 +69,9 @@ class SecretShareCrypto {
   }
 
   /**
-   * Export a CryptoKey to a base64 string for URL storage
+   * Export a CryptoKey to a base64url string for URL storage
    * @param {CryptoKey} key - The key to export
-   * @returns {Promise<string>} Base64 encoded key
+   * @returns {Promise<string>} Base64URL encoded key (URL-safe)
    */
   async exportKeyToBase64(key) {
     const exported = await crypto.subtle.exportKey('raw', key);
@@ -79,12 +79,12 @@ class SecretShareCrypto {
   }
 
   /**
-   * Import a key from a base64 string
-   * @param {string} base64Key - Base64 encoded key
+   * Import a key from a base64url string
+   * @param {string} base64urlKey - Base64URL encoded key
    * @returns {Promise<CryptoKey>} The imported key
    */
-  async importKeyFromBase64(base64Key) {
-    const keyData = this.base64ToArrayBuffer(base64Key);
+  async importKeyFromBase64(base64urlKey) {
+    const keyData = this.base64ToArrayBuffer(base64urlKey);
     return await crypto.subtle.importKey(
       'raw',
       keyData,
@@ -204,9 +204,9 @@ class SecretShareCrypto {
   }
 
   /**
-   * Utility: Convert ArrayBuffer to Base64
+   * Utility: Convert ArrayBuffer to Base64URL (URL-safe base64)
    * @param {ArrayBuffer} buffer - The buffer to convert
-   * @returns {string} Base64 string
+   * @returns {string} Base64URL string
    */
   arrayBufferToBase64(buffer) {
     const bytes = new Uint8Array(buffer);
@@ -214,15 +214,30 @@ class SecretShareCrypto {
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    return btoa(binary);
+    // Convert to base64url: replace + with -, / with _, and remove padding
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
   }
 
   /**
-   * Utility: Convert Base64 to ArrayBuffer
-   * @param {string} base64 - Base64 string
+   * Utility: Convert Base64URL to ArrayBuffer
+   * @param {string} base64url - Base64URL string
    * @returns {ArrayBuffer} The decoded buffer
    */
-  base64ToArrayBuffer(base64) {
+  base64ToArrayBuffer(base64url) {
+    // Convert base64url back to base64: replace - with +, _ with /, and add padding
+    let base64 = base64url
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    
+    // Add padding if needed
+    const padding = 4 - (base64.length % 4);
+    if (padding !== 4) {
+      base64 += '='.repeat(padding);
+    }
+    
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
