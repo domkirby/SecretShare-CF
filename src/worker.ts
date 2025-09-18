@@ -51,7 +51,7 @@ export default {
     }
 
     try {
-      // Handle API routes
+      // Only handle API routes - let Wrangler serve static files for everything else
       if (url.pathname.startsWith('/api/')) {
         switch (`${request.method} ${url.pathname}`) {
           case 'GET /api/csrf-token':
@@ -76,12 +76,9 @@ export default {
         }
       }
       
-      // For non-API routes, return a simple 404 for now
-      // TODO: Add static file serving after confirming worker deployment works
-      return new Response('Page not found', {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
-      });
+      // For non-API routes, return undefined to let Wrangler handle static files
+      // This approach should allow static file serving to work
+      return new Response('', { status: 404 });
     } catch (error) {
       console.error('Worker error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {

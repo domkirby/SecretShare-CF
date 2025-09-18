@@ -1,48 +1,22 @@
-name = "secretshare-dev"
+# Simple Cloudflare Worker Configuration for SecretShare
+name = "secretshare"
 main = "src/worker.ts"
 compatibility_date = "2024-01-01"
-workers_dev = true
 
-# Static file serving configuration
+# Static site configuration - serves files from public/ directory
 [site]
 bucket = "./public"
 
-# KV Namespaces - Update these with your actual KV namespace IDs
-kv_namespaces = [
-  { binding = "SECRETS_KV", preview_id = "your-preview-kv-id", id = "your-dev-kv-id" }
-]
+# KV Namespace for storing secrets (replace with actual IDs)
+# Production values will be overridden via Cloudflare Dashboard
+[[kv_namespaces]]
+binding = "SECRETS_KV"
+preview_id = "your-preview-kv-namespace-id"
+id = "your-production-kv-namespace-id"
 
-# Environment Variables (non-sensitive)
+# Environment variables (these can be overridden in Cloudflare Dashboard)
 [vars]
-ALLOWED_ORIGINS = "http://localhost:8787,https://your-dev-worker.workers.dev"
-
-# Production environment (configured via GitHub Actions)
-[env.production]
-name = "secretshare-prod"
-workers_dev = false
-
-[env.production.vars]
-ALLOWED_ORIGINS = "https://your-domain.com"
-
-# Staging environment (configured via GitHub Actions)
-[env.staging]
-name = "secretshare-staging"
-kv_namespaces = [
-  { binding = "SECRETS_KV", id = "your-staging-kv-id" }
-]
-
-[env.staging.vars]
-ALLOWED_ORIGINS = "https://staging.your-domain.com"
-
-kv_namespaces = [name = "${WORKER_NAME}-staging"
-
-  { binding = "SECRETS_KV", id = "your-staging-kv-id" }kv_namespaces = [
-
-]  { binding = "SECRETS_KV", id = "${KV_NAMESPACE_STAGING_ID}" }
-
-]
-
-[env.staging.vars]
-
-ALLOWED_ORIGINS = "https://staging.your-domain.com"[env.staging.vars]
-ALLOWED_ORIGINS = "${ALLOWED_ORIGINS_STAGING}"
+# CORS origins - override in Dashboard for production
+ALLOWED_ORIGINS = "http://localhost:8787"
+# CSRF secret - MUST be overridden in Dashboard for production
+CSRF_SECRET = "dev-secret-change-for-production"
