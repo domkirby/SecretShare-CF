@@ -1,0 +1,31 @@
+name = "secretshare"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# KV Namespaces
+kv_namespaces = [
+  { binding = "SECRETS_KV", preview_id = "your-preview-kv-id", id = "your-production-kv-id" }
+]
+
+# Environment Variables (non-sensitive)
+[vars]
+ALLOWED_ORIGINS = "https://yourdomain.com,https://secretshare.yourdomain.com"
+
+# Production environment
+[env.production]
+name = "secretshare-prod"
+workers_dev = false
+
+[env.production.vars]
+ALLOWED_ORIGINS = "https://secretshare.yourdomain.com"
+
+# Staging environment
+[env.staging]
+name = "secretshare-staging"
+kv_namespaces = [
+  { binding = "SECRETS_KV", id = "your-staging-kv-id" }
+]
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://secretshare-staging.yourdomain.com"

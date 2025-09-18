@@ -1,0 +1,31 @@
+{
+  "name": "secretshare-workers",
+  "version": "1.0.0",
+  "description": "Secure temporary secret sharing with Cloudflare Workers",
+  "main": "src/worker.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "kv:create": "wrangler kv:namespace create SECRETS_KV",
+    "kv:create:preview": "wrangler kv:namespace create SECRETS_KV --preview",
+    "tail": "wrangler tail",
+    "test": "npm run type-check",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231025.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^4.37.1"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "encryption",
+    "security",
+    "secrets"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
