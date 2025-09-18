@@ -68,7 +68,7 @@ Before setting up GitHub Actions deployment, ensure you have:
 
 ## Step 1: Fork the Repository
 
-1. Navigate to the original SecretShare repository on GitHub
+1. Fork this repository (domkirby/secretshare-cf)
 2. Click the **Fork** button in the top-right corner
 3. Select your GitHub account as the destination
 4. Wait for the fork to be created
@@ -121,6 +121,8 @@ The configuration depends on your chosen deployment scenario:
 | `WORKER_NAME` | Base name for your worker | `my-secretshare` |
 | `ALLOWED_ORIGINS` | Default allowed origins for CORS | `https://my-secretshare.workers.dev` |
 
+> **Note**: `ALLOWED_ORIGINS` can include multiple comma-separated values for multiple domains, e.g., `https://domain1.com,https://domain2.com,https://subdomain.domain1.com`
+
 ### 🎯 **Additional for Production-Only (Scenario 1)**
 
 #### Repository Variables (Optional but Recommended)
@@ -129,7 +131,7 @@ The configuration depends on your chosen deployment scenario:
 |---------------|-------------|---------------|
 | `ALLOWED_ORIGINS_PROD` | Production-specific origins | `https://secretshare.mydomain.com` |
 
-> **Note**: If `ALLOWED_ORIGINS_PROD` is not set, the workflow will fall back to using `ALLOWED_ORIGINS`.
+> **Note**: If `ALLOWED_ORIGINS_PROD` is not set, the workflow will fall back to using `ALLOWED_ORIGINS`. All origin variables support comma-separated values for multiple domains.
 
 ### 🔄 **Additional for Full CI/CD Pipeline (Scenario 2)**
 
@@ -147,6 +149,8 @@ The configuration depends on your chosen deployment scenario:
 | `ALLOWED_ORIGINS_STAGING` | Staging allowed origins | `https://secretshare-staging.mydomain.com` |
 
 > **Important**: The staging deployment will only run if `KV_NAMESPACE_STAGING_ID` is set. If you don't want staging, simply don't set these staging-specific secrets and variables.
+> 
+> **Tip**: All `ALLOWED_ORIGINS` variables support comma-separated values for multiple domains, e.g., `https://staging.domain.com,https://test.domain.com`
 
 ### Creating KV Namespaces
 
