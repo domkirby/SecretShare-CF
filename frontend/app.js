@@ -496,11 +496,14 @@
                 // Call API to retrieve encrypted data
                 statusText.textContent = `Retrieving ${modeInfo.mode} secret...`;
                 
+                // Get CSRF token for the request body
+                const csrfToken = await getCSRFToken();
+                
                 const response = await apiCall(`${API_BASE_URL}/api/retrieve`, {
                     method: 'POST',
                     body: JSON.stringify({
-                        secretId: secretId
-                        // Note: csrfToken will be added automatically by apiCall()
+                        secretId: secretId,
+                        csrfToken: csrfToken // Include CSRF token in request body
                     })
                 });
                 
@@ -769,11 +772,14 @@
                 // Prepare API request
                 document.getElementById('create-status-text').textContent = 'Storing secret securely...';
                 
+                // Get CSRF token for the request body
+                const csrfToken = await getCSRFToken();
+                
                 const requestData = {
                     encryptedData: encryptedData,
                     maxViews: maxViews,
                     expirationHours: expirationHours,
-                    // Note: csrfToken will be added automatically by apiCall()
+                    csrfToken: csrfToken // Include CSRF token in request body
                 };
                 
                 // Call the API
