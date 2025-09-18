@@ -1,5 +1,7 @@
-        // API Configuration
-        const API_BASE_URL = 'https://dkc-secretshare-api.dom-kirby-creative.workers.dev';
+        // API Configuration - can be overridden via environment variable during build
+        const API_BASE_URL = (typeof process !== 'undefined' && process.env && process.env.API_BASE_URL) 
+            ? process.env.API_BASE_URL 
+            : 'https://dkc-secretshare-api.dom-kirby-creative.workers.dev';
         
         // Theme management
         function toggleTheme() {

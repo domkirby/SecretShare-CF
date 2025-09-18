@@ -1,0 +1,12 @@
+{
+  "name": "secretshare-frontend",
+  "version": "1.0.0",
+  "description": "SecretShare frontend for Cloudflare Pages",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "python -m http.server 8000 2>/dev/null || python3 -m http.server 8000"
+  },
+  "keywords": ["security", "secrets", "encryption", "cloudflare"],
+  "author": "Dom Kirby",
+  "license": "MIT"
+}
