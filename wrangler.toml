@@ -1,22 +1,17 @@
-# Simple Cloudflare Worker Configuration for SecretShare
-name = "secretshare"
+# Cloudflare Worker Configuration for SecretShare API
+name = "dkc-secretshare-api"
 main = "src/worker.ts"
 compatibility_date = "2024-01-01"
 
-# Static site configuration - serves files from public/ directory
-[site]
-bucket = "./public"
-
-# KV Namespace for storing secrets (replace with actual IDs)
-# Production values will be overridden via Cloudflare Dashboard
+# KV Namespace for storing secrets
 [[kv_namespaces]]
 binding = "SECRETS_KV"
-preview_id = "your-preview-kv-namespace-id"
-id = "your-production-kv-namespace-id"
+preview_id = "34b1d85363f94e3480337a8ffb6ba33a"
+id = "34b1d85363f94e3480337a8ffb6ba33a"
 
 # Environment variables (these can be overridden in Cloudflare Dashboard)
 [vars]
-# CORS origins - override in Dashboard for production
-ALLOWED_ORIGINS = "http://localhost:8787"
+# CORS origins - override in Dashboard for production (set to your Pages domain)
+ALLOWED_ORIGINS = "http://localhost:8787,https://*.pages.dev"
 # CSRF secret - MUST be overridden in Dashboard for production
-CSRF_SECRET = "dev-secret-change-for-production"
+CSRF_SECRET = "developer-secret"

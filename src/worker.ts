@@ -76,9 +76,11 @@ export default {
         }
       }
       
-      // For non-API routes, return undefined to let Wrangler handle static files
-      // This approach should allow static file serving to work
-      return new Response('', { status: 404 });
+      // For non-API routes, return 404 (static files will be served by Pages)
+      return new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     } catch (error) {
       console.error('Worker error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
