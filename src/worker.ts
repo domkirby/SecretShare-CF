@@ -23,6 +23,11 @@ interface RetrieveSecretRequest {
   csrfToken: string;
 }
 
+interface DeleteSecretRequest {
+  secretId: string;
+  csrfToken: string;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -54,7 +59,7 @@ export default {
     
     const corsHeaders = {
       'Access-Control-Allow-Origin': isOriginAllowed ? (origin || '*') : 'null',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, X-CSRF-Token',
       'Access-Control-Max-Age': '86400',
     };
@@ -82,6 +87,9 @@ export default {
           
           case 'POST /api/retrieve':
             return handleRetrieveSecret(request, env, corsHeaders);
+          
+          case 'DELETE /api/delete':
+            return handleDeleteSecret(request, env, corsHeaders);
           
           case 'GET /api/health':
             return new Response(JSON.stringify({ status: 'ok', timestamp: Date.now() }), {
@@ -299,6 +307,68 @@ async function handleRetrieveSecret(request: Request, env: Env, corsHeaders: Rec
   }), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+async function handleDeleteSecret(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
+  let data: DeleteSecretRequest;
+  
+  try {
+    data = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Validate required fields
+  if (!data.secretId || !data.csrfToken) {
+    return new Response(JSON.stringify({ error: 'Missing required fields' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Validate CSRF token
+  const isValidToken = await validateCSRFToken(data.csrfToken, env.CSRF_SECRET);
+  if (!isValidToken) {
+    return new Response(JSON.stringify({ error: 'Invalid CSRF token' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Hash the secret ID to use as KV key
+  const hashedSecretId = await hashSecretId(data.secretId);
+
+  try {
+    // Check if secret exists before attempting to delete
+    const existingSecret = await env.SECRETS_KV.get(hashedSecretId);
+    
+    if (!existingSecret) {
+      return new Response(JSON.stringify({ error: 'Secret not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Delete the secret
+    await env.SECRETS_KV.delete(hashedSecretId);
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      message: 'Secret deleted successfully' 
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    console.error('KV delete error:', error);
+    return new Response(JSON.stringify({ error: 'Failed to delete secret' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 // CSRF Token Generation and Validation
