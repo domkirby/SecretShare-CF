@@ -30,7 +30,27 @@ export default {
     
     // Validate origin if ALLOWED_ORIGINS is set
     const allowedOrigins = env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || ['*'];
-    const isOriginAllowed = allowedOrigins.includes('*') || (origin && allowedOrigins.includes(origin));
+    
+    // More flexible origin matching
+    let isOriginAllowed = false;
+    if (allowedOrigins.includes('*')) {
+      isOriginAllowed = true;
+    } else if (origin) {
+      isOriginAllowed = allowedOrigins.some(allowed => {
+        // Exact match
+        if (allowed === origin) return true;
+        
+        // Wildcard subdomain matching (e.g., "https://*.pages.dev" matches "https://abc.pages.dev")
+        if (allowed.includes('*')) {
+          // Convert wildcard pattern to regex
+          const pattern = allowed.replace(/\*/g, '[^.]+');
+          const regex = new RegExp(`^${pattern}$`);
+          return regex.test(origin);
+        }
+        
+        return false;
+      });
+    }
     
     const corsHeaders = {
       'Access-Control-Allow-Origin': isOriginAllowed ? (origin || '*') : 'null',
