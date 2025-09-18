@@ -26,8 +26,20 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Check staging configuration
+        id: staging-check
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/staging'
+        run: |
+          if [ "${{ secrets.KV_NAMESPACE_STAGING_ID }}" != "" ]; then
+            echo "staging-configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "staging-configured=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Staging deployment skipped - KV_NAMESPACE_STAGING_ID not configured"
+          fi
+        shell: bash
+
       - name: Deploy to staging
-        if: (github.event_name == 'pull_request' || github.ref == 'refs/heads/staging') && secrets.KV_NAMESPACE_STAGING_ID != ''
+        if: steps.staging-check.outputs.staging-configured == 'true'
         uses: cloudflare/wrangler-action@v3
         env:
           WORKER_NAME: ${{ vars.WORKER_NAME }}
