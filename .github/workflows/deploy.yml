@@ -2,7 +2,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
     branches: [main]
 
@@ -27,19 +27,33 @@ jobs:
         run: npm run type-check
 
       - name: Deploy to staging
-        if: github.event_name == 'pull_request'
+        if: (github.event_name == 'pull_request' || github.ref == 'refs/heads/staging') && secrets.KV_NAMESPACE_STAGING_ID != ''
         uses: cloudflare/wrangler-action@v3
+        env:
+          WORKER_NAME: ${{ vars.WORKER_NAME }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_STAGING_ID }}
+          KV_NAMESPACE_PREVIEW_ID: ${{ secrets.KV_NAMESPACE_PREVIEW_ID }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS_STAGING || vars.ALLOWED_ORIGINS }}
+          ALLOWED_ORIGINS_STAGING: ${{ vars.ALLOWED_ORIGINS_STAGING || vars.ALLOWED_ORIGINS }}
+          CSRF_SECRET: ${{ secrets.CSRF_SECRET_STAGING }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env staging
-        env:
-          CSRF_SECRET: ${{ secrets.CSRF_SECRET_STAGING }}
 
       - name: Deploy to production
         if: github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
+        env:
+          WORKER_NAME: ${{ vars.WORKER_NAME }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+          KV_NAMESPACE_PREVIEW_ID: ${{ secrets.KV_NAMESPACE_PREVIEW_ID }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS_PROD || vars.ALLOWED_ORIGINS }}
+          ALLOWED_ORIGINS_PROD: ${{ vars.ALLOWED_ORIGINS_PROD || vars.ALLOWED_ORIGINS }}
+          CSRF_SECRET: ${{ secrets.CSRF_SECRET_PRODUCTION }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env production
-        env:
-          CSRF_SECRET: ${{ secrets.CSRF_SECRET_PRODUCTION }}

@@ -176,14 +176,7 @@ npm run deploy:staging
 
 The project includes automated deployment via GitHub Actions:
 
-1. **Set Repository Secrets**:
-   - `CLOUDFLARE_API_TOKEN`
-   - `CSRF_SECRET_PRODUCTION` 
-   - `CSRF_SECRET_STAGING`
-
-2. **Automatic Deployment**:
-   - Push to `main` → deploys to production
-   - Open PR → deploys to staging
+See `Deploy-With-GH.md` for details.
 
 ## 🔧 Development
 
@@ -260,12 +253,12 @@ For maximum security with highly sensitive data, consider running your own insta
 
 ## 📞 Support
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/secretshare-workers/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/yourusername/secretshare-workers/discussions)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/domkirby/secretshare-cf/issues)
+- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/domkirby/secretshare-cf/discussions)
 - 📧 **Security Issues**: Please email security concerns privately
 
 ---
 
 **⭐ Star this repo if you find it useful! ⭐**
 
-[Live Demo](https://share.domk.pro) • [Documentation](https://github.com/yourusername/secretshare-workers/wiki)
+[Live Demo](https://share.domk.pro) • [Documentation](https://github.com/domkirby/secretshare-cf/wiki)
