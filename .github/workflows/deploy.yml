@@ -23,6 +23,50 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate wrangler.toml for deployment
+        run: |
+          cat > wrangler.toml << EOF
+          name = "${{ vars.WORKER_NAME }}"
+          main = "src/worker.ts"
+          compatibility_date = "2024-01-01"
+          workers_dev = true
+          account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+
+          # KV Namespaces
+          kv_namespaces = [
+            { binding = "SECRETS_KV", preview_id = "${{ secrets.KV_NAMESPACE_PREVIEW_ID }}", id = "${{ secrets.KV_NAMESPACE_ID }}" }
+          ]
+
+          # Environment Variables (non-sensitive)
+          [vars]
+          ALLOWED_ORIGINS = "${{ vars.ALLOWED_ORIGINS }}"
+
+          # Production environment
+          [env.production]
+          name = "${{ vars.WORKER_NAME }}-prod"
+          workers_dev = false
+
+          [env.production.vars]
+          ALLOWED_ORIGINS = "${{ vars.ALLOWED_ORIGINS_PROD || vars.ALLOWED_ORIGINS }}"
+
+          # Staging environment
+          [env.staging]
+          name = "${{ vars.WORKER_NAME }}-staging"
+          kv_namespaces = [
+            { binding = "SECRETS_KV", id = "${{ secrets.KV_NAMESPACE_STAGING_ID || secrets.KV_NAMESPACE_ID }}" }
+          ]
+
+          [env.staging.vars]
+          ALLOWED_ORIGINS = "${{ vars.ALLOWED_ORIGINS_STAGING || vars.ALLOWED_ORIGINS }}"
+          EOF
+          
+          echo "✅ Generated wrangler.toml for deployment"
+          echo "📝 Configuration preview:"
+          echo "   Worker name: ${{ vars.WORKER_NAME }}"
+          echo "   Production: ${{ vars.WORKER_NAME }}-prod"
+          echo "   Staging: ${{ vars.WORKER_NAME }}-staging"
+        shell: bash
+
       - name: Type check
         run: npm run type-check
 

@@ -184,17 +184,34 @@ openssl rand -hex 32
 
 Generate separate secrets for production and staging environments (if using staging).
 
-## Step 4: Verify Wrangler Configuration
+## Step 4: Understand Wrangler Configuration
 
-The `wrangler.toml` file is now configured to use environment variables from your GitHub secrets and variables. You don't need to edit this file manually - it will automatically use your configured values during deployment.
+The repository includes two configuration files:
 
-The configuration uses these placeholders:
-- `${WORKER_NAME}` - From GitHub Variables
-- `${CLOUDFLARE_ACCOUNT_ID}` - From GitHub Secrets  
-- `${KV_NAMESPACE_ID}` - From GitHub Secrets
-- `${ALLOWED_ORIGINS}` - From GitHub Variables
+### `wrangler.toml` (Local Development)
+- **Purpose**: For local development and testing
+- **Configuration**: Static values that you can customize for your development environment
+- **Usage**: Edit this file with your own KV namespace IDs for local development
 
-> **Note**: The dynamic configuration ensures your secrets stay secure and makes it easy for others to fork and deploy with their own settings.
+### `wrangler.toml.template` (GitHub Actions Template)
+- **Purpose**: Template used by GitHub Actions to generate deployment configuration
+- **Configuration**: Uses placeholder variables that get replaced during deployment
+- **Usage**: Don't edit this file - it's used automatically by the workflow
+
+### Dynamic Configuration Process
+
+During GitHub Actions deployment:
+1. The workflow generates a new `wrangler.toml` file from your GitHub secrets and variables
+2. This ensures your sensitive data (like KV namespace IDs) stays secure
+3. Each deployment gets the correct configuration for that environment
+
+**Variables used in deployment:**
+- `WORKER_NAME` → Worker names (dev, staging, prod)
+- `CLOUDFLARE_ACCOUNT_ID` → Your Cloudflare account
+- `KV_NAMESPACE_*` → Environment-specific KV namespaces
+- `ALLOWED_ORIGINS_*` → Environment-specific CORS settings
+
+> **Note**: This approach keeps secrets secure while making the repository fork-friendly. You never need to commit sensitive data to your repository.
 
 ## Step 5: Set Up GitHub Actions Workflow
 

@@ -1,0 +1,32 @@
+name = "${WORKER_NAME}"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+workers_dev = true
+account_id = "${CLOUDFLARE_ACCOUNT_ID}"
+
+# KV Namespaces
+kv_namespaces = [
+  { binding = "SECRETS_KV", preview_id = "${KV_NAMESPACE_PREVIEW_ID}", id = "${KV_NAMESPACE_ID}" }
+]
+
+# Environment Variables (non-sensitive)
+[vars]
+ALLOWED_ORIGINS = "${ALLOWED_ORIGINS}"
+
+# Production environment
+[env.production]
+name = "${WORKER_NAME}-prod"
+workers_dev = false
+
+[env.production.vars]
+ALLOWED_ORIGINS = "${ALLOWED_ORIGINS_PROD}"
+
+# Staging environment
+[env.staging]
+name = "${WORKER_NAME}-staging"
+kv_namespaces = [
+  { binding = "SECRETS_KV", id = "${KV_NAMESPACE_STAGING_ID}" }
+]
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "${ALLOWED_ORIGINS_STAGING}"
