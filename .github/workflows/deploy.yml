@@ -32,14 +32,14 @@ jobs:
           workers_dev = true
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
 
-          # Static file serving configuration
-          [site]
-          bucket = "./public"
-
-          # KV Namespaces
+          # KV Namespaces (at root level, not in site)
           kv_namespaces = [
             { binding = "SECRETS_KV", preview_id = "${{ secrets.KV_NAMESPACE_PREVIEW_ID }}", id = "${{ secrets.KV_NAMESPACE_ID }}" }
           ]
+
+          # Static file serving configuration
+          [site]
+          bucket = "./public"
 
           # Environment Variables (non-sensitive)
           [vars]
@@ -70,6 +70,7 @@ jobs:
           echo "   Production: ${{ vars.WORKER_NAME }}-prod"
           echo "   Staging: ${{ vars.WORKER_NAME }}-staging"
           echo "   Static files: ./public directory"
+          echo "   KV namespace: ${{ secrets.KV_NAMESPACE_ID }}"
         shell: bash
 
       - name: Type check
