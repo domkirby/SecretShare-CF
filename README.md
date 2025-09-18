@@ -28,80 +28,51 @@ A modern, zero-knowledge secret sharing application that allows you to securely 
 
 ## 🚀 Quick Start
 
-### Prerequisites
+> **📋 For complete deployment instructions, see [DEPLOY.md](DEPLOY.md)**
 
-- [Node.js](https://nodejs.org/) (18+)
-- [Cloudflare Account](https://cloudflare.com/)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
-
-### Installation
+### Local Development
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/secretshare-workers.git
-   cd secretshare-workers
+   git clone https://github.com/yourusername/SecretShare-CF.git
+   cd SecretShare-CF
    ```
 
 2. **Install dependencies**
    ```bash
    npm install
+   cd frontend && npm install && cd ..
    ```
 
-3. **Create KV namespaces**
+3. **Set up development environment**
    ```bash
-   # Create production namespace
-   npm run kv:create
-   # Create preview namespace for development
-   npm run kv:create:preview
+   # Copy example environment file
+   cp wrangler.toml.template wrangler.toml
+   # Edit wrangler.toml with your configuration
    ```
 
-4. **Configure environment**
+4. **Start development**
    ```bash
-   cp .env.example .env
-   # Edit .env with your values
-   ```
-
-5. **Update wrangler.toml**
-   - Add your KV namespace IDs from step 3
-   - Configure your domain settings
-
-6. **Deploy**
-   ```bash
-   # Development
-   npm run dev
+   # Start the worker in development mode
+   npx wrangler dev
    
-   # Production
-   npm run deploy
+   # In another terminal, build and serve frontend
+   cd frontend && npm run build && python -m http.server 8080
    ```
+
+For production deployment with Cloudflare Pages + Workers, custom domains, and Git integration, see **[DEPLOY.md](DEPLOY.md)** for comprehensive instructions.
 
 ## ⚙️ Configuration
 
-### Environment Variables
+> **📋 For complete configuration and deployment setup, see [DEPLOY.md](DEPLOY.md)**
 
-Create a `.env` file with these values:
+The application uses the split architecture with Cloudflare Workers (API) and Cloudflare Pages (frontend). Key configuration includes:
 
-```bash
-# Cloudflare API Token (for deployment)
-CLOUDFLARE_API_TOKEN=your_api_token_here
+- **Worker Environment Variables**: CSRF secrets, CORS origins, KV namespace binding
+- **Frontend Environment Variables**: API endpoint URL for cross-origin requests  
+- **Build Process**: Environment variable substitution and static file generation
 
-# CSRF Secret (minimum 32 characters)
-CSRF_SECRET=your_super_secret_csrf_key_here_32plus_chars
-
-# KV Namespace IDs (from wrangler kv:namespace create)
-PRODUCTION_KV_ID=your_production_kv_namespace_id
-STAGING_KV_ID=your_staging_kv_namespace_id
-PREVIEW_KV_ID=your_preview_kv_namespace_id
-```
-
-### Wrangler Configuration
-
-Update `wrangler.toml` with your namespace IDs:
-
-```toml
-kv_namespaces = [
-  { binding = "SECRETS_KV", preview_id = "YOUR_PREVIEW_ID", id = "YOUR_PRODUCTION_ID" }
-]
-```
+See [DEPLOY.md](DEPLOY.md) for step-by-step configuration instructions.
 
 ## 🏗️ Architecture
 
@@ -162,21 +133,16 @@ GET /api/csrf-token
 
 ## 🚀 Deployment
 
-### Manual Deployment
+> **📋 For complete deployment instructions, see [DEPLOY.md](DEPLOY.md)**
 
-```bash
-# Deploy to production
-npm run deploy:production
+SecretShare uses a split architecture with Cloudflare Workers (API backend) and Cloudflare Pages (static frontend). The deployment process involves:
 
-# Deploy to staging  
-npm run deploy:staging
-```
+1. **Deploy API Worker**: Configure KV namespace, set environment variables, deploy worker
+2. **Build & Deploy Frontend**: Set API endpoint, build with environment substitution, deploy to Pages  
+3. **Configure CORS**: Set up cross-origin communication between Pages and Workers
+4. **Optional**: Custom domains and Git integration
 
-### GitHub Actions
-
-The project includes automated deployment via GitHub Actions:
-
-See `Deploy-With-GH.md` for details.
+**[DEPLOY.md](DEPLOY.md)** provides comprehensive step-by-step instructions for both testing and production deployments.
 
 ## 🔧 Development
 
