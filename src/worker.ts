@@ -51,27 +51,37 @@ export default {
     }
 
     try {
-      switch (`${request.method} ${url.pathname}`) {
-        case 'GET /api/csrf-token':
-          return handleGetCSRFToken(env, corsHeaders);
-        
-        case 'POST /api/create':
-          return handleCreateSecret(request, env, corsHeaders);
-        
-        case 'POST /api/retrieve':
-          return handleRetrieveSecret(request, env, corsHeaders);
-        
-        case 'GET /api/health':
-          return new Response(JSON.stringify({ status: 'ok', timestamp: Date.now() }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        
-        default:
-          return new Response(JSON.stringify({ error: 'Not found' }), {
-            status: 404,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
+      // Handle API routes
+      if (url.pathname.startsWith('/api/')) {
+        switch (`${request.method} ${url.pathname}`) {
+          case 'GET /api/csrf-token':
+            return handleGetCSRFToken(env, corsHeaders);
+          
+          case 'POST /api/create':
+            return handleCreateSecret(request, env, corsHeaders);
+          
+          case 'POST /api/retrieve':
+            return handleRetrieveSecret(request, env, corsHeaders);
+          
+          case 'GET /api/health':
+            return new Response(JSON.stringify({ status: 'ok', timestamp: Date.now() }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          
+          default:
+            return new Response(JSON.stringify({ error: 'API endpoint not found' }), {
+              status: 404,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
       }
+      
+      // For non-API routes, return a simple 404 for now
+      // TODO: Add static file serving after confirming worker deployment works
+      return new Response('Page not found', {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'text/plain' },
+      });
     } catch (error) {
       console.error('Worker error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {

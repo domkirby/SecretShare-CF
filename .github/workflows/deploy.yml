@@ -32,6 +32,10 @@ jobs:
           workers_dev = true
           account_id = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
 
+          # Static file serving configuration
+          [site]
+          bucket = "./public"
+
           # KV Namespaces
           kv_namespaces = [
             { binding = "SECRETS_KV", preview_id = "${{ secrets.KV_NAMESPACE_PREVIEW_ID }}", id = "${{ secrets.KV_NAMESPACE_ID }}" }
@@ -60,11 +64,12 @@ jobs:
           ALLOWED_ORIGINS = "${{ vars.ALLOWED_ORIGINS_STAGING || vars.ALLOWED_ORIGINS }}"
           EOF
           
-          echo "✅ Generated wrangler.toml for deployment"
+          echo "✅ Generated wrangler.toml for deployment with static file serving"
           echo "📝 Configuration preview:"
           echo "   Worker name: ${{ vars.WORKER_NAME }}"
           echo "   Production: ${{ vars.WORKER_NAME }}-prod"
           echo "   Staging: ${{ vars.WORKER_NAME }}-staging"
+          echo "   Static files: ./public directory"
         shell: bash
 
       - name: Type check
