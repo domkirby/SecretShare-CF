@@ -440,4 +440,4 @@ Once deployment is working:
 
 ---
 
-**Happy deploying!** 🚀
+**Happy deploying!** 🚀 
