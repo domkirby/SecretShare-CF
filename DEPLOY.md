@@ -231,6 +231,168 @@ API_BASE_URL=https://api.yourdomain.com
 
 Then rebuild and redeploy the frontend.
 
+## Part 4: Advanced - Worker Routes (Same-Domain Deployment)
+
+> **🚀 Advanced Option**: Deploy both frontend and API on the same domain using Worker Routes to eliminate CORS entirely.
+
+### Overview
+
+Instead of using separate domains for Pages and Workers, you can use **Cloudflare Worker Routes** to serve the API on the same domain as your Pages site. This approach:
+
+- ✅ **Eliminates CORS completely** - no cross-origin requests
+- ✅ **Simplifies configuration** - no CORS_ORIGINS needed
+- ✅ **Better performance** - no preflight OPTIONS requests
+- ✅ **Cleaner URLs** - `/api/create` instead of `https://api-worker.domain.com/api/create`
+
+### Architecture with Worker Routes
+
+```
+Same Domain (yourdomain.com)
+┌─────────────────────────────────────┐
+│  Cloudflare Pages + Worker Routes   │
+│                                     │
+│  /              → Pages (Frontend)  │
+│  /secret/*      → Pages (Frontend)  │
+│  /api/*         → Worker (Backend)  │
+│  /health        → Worker (Backend)  │
+└─────────────────────────────────────┘
+```
+
+### 4.1 Prerequisites
+
+- **Custom Domain**: You must have a custom domain added to Cloudflare
+- **DNS Management**: Domain's nameservers must point to Cloudflare
+
+### 4.2 Deploy Worker with Routes
+
+1. **Update your `wrangler.toml`** to include route patterns:
+
+```toml
+name = "your-api-worker-name"
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+
+# Add route patterns for your domain
+[[routes]]
+pattern = "yourdomain.com/api/*"
+zone_name = "yourdomain.com"
+
+[[routes]]
+pattern = "yourdomain.com/health"
+zone_name = "yourdomain.com"
+
+[env.production]
+vars = { }
+
+[[env.production.kv_namespaces]]
+binding = "SECRETS"
+id = "your-actual-kv-namespace-id"
+preview_id = "your-preview-id"
+```
+
+2. **Deploy the worker with routes**:
+
+```bash
+npx wrangler deploy
+```
+
+### 4.3 Configure Frontend for Same-Domain
+
+Update your frontend environment to use relative URLs:
+
+```env
+# frontend/.env
+API_BASE_URL=
+```
+
+Or alternatively, use your domain:
+
+```env
+# frontend/.env  
+API_BASE_URL=https://yourdomain.com
+```
+
+### 4.4 Simplify Worker Configuration
+
+Since there's no cross-origin communication, you can simplify the worker:
+
+1. **Remove CORS_ORIGINS requirement**:
+```bash
+# This is now optional since there are no cross-origin requests
+npx wrangler secret put CORS_ORIGINS
+# Enter: (leave empty or use for development domains only)
+```
+
+2. **Update Worker Code** (optional optimization):
+
+In `src/worker.ts`, you can simplify the CORS handling:
+
+```typescript
+// For same-domain deployment, CORS headers are not needed
+// But keeping them won't hurt for development flexibility
+```
+
+### 4.5 Deploy Pages to Custom Domain
+
+1. **Add your domain to Pages**:
+   - Go to Cloudflare Dashboard → Pages
+   - Select your project → Custom domains  
+   - Add: `yourdomain.com`
+
+2. **Configure DNS** (if not already done):
+   - Add CNAME record: `yourdomain.com` → `your-pages-site.pages.dev`
+   - Or A record pointing to Cloudflare's IPs if using root domain
+
+### 4.6 Build and Deploy Frontend
+
+```bash
+cd frontend
+npm run build
+npx wrangler pages deploy dist --project-name your-frontend-name
+```
+
+### 4.7 Test Same-Domain Deployment
+
+Visit `https://yourdomain.com` and verify:
+
+1. **Frontend loads** from Pages
+2. **API calls work** to `/api/*` routes (served by Worker)
+3. **No CORS errors** in browser console
+4. **All functionality** works (create, retrieve, delete)
+
+### Benefits of Worker Routes
+
+| Aspect | Separate Domains | Worker Routes (Same Domain) |
+|--------|-----------------|---------------------------|
+| **CORS Setup** | Required, complex | Not needed |
+| **Configuration** | 2 domains, CORS origins | 1 domain, simpler |
+| **Performance** | Preflight requests | Direct requests |
+| **URL Structure** | `api.domain.com/api/create` | `domain.com/api/create` |
+| **SSL/DNS** | 2 certificates, 2 DNS records | 1 certificate, simpler DNS |
+
+### Considerations
+
+**Advantages:**
+- Simpler configuration and maintenance
+- Better performance (no CORS preflight)
+- Cleaner URL structure
+- Easier debugging (same-origin)
+
+**Trade-offs:**
+- Requires custom domain (can't use free `*.pages.dev`)
+- Worker routes consume request quota
+- Slightly more complex initial setup
+
+### Migration from Cross-Origin Setup
+
+If you're migrating from a cross-origin setup:
+
+1. Set up Worker Routes as above
+2. Update frontend `API_BASE_URL` to use same domain
+3. Rebuild and redeploy frontend
+4. Test thoroughly before removing old worker
+5. Optionally simplify CORS configuration
+
 ## Environment Variables Reference
 
 ### Worker Environment Variables (Secrets)
@@ -238,13 +400,15 @@ Then rebuild and redeploy the frontend.
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `CSRF_SECRET` | ✅ | Random string for CSRF protection (32+ chars) | `a1b2c3d4e5f6...` |
-| `CORS_ORIGINS` | ✅ | Comma-separated allowed origins | `https://*.pages.dev,https://yourdomain.com` |
+| `CORS_ORIGINS` | ✅* | Comma-separated allowed origins | `https://*.pages.dev,https://yourdomain.com` |
+
+> **\*** `CORS_ORIGINS` is required for cross-origin deployments but optional when using Worker Routes (same-domain)
 
 ### Frontend Environment Variables
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `API_BASE_URL` | ✅ | Your deployed worker URL | `https://api.yourdomain.com` |
+| `API_BASE_URL` | ✅ | Your deployed worker URL or empty for same-domain | `https://api.yourdomain.com` or `` |
 
 ## Troubleshooting
 
@@ -269,6 +433,17 @@ Then rebuild and redeploy the frontend.
 - Verify `API_BASE_URL` is set in `frontend/.env`
 - Check that the URL doesn't end with a trailing slash
 - Run `npm install` in frontend directory
+
+**5. Worker Routes Not Working**
+- Verify route patterns in `wrangler.toml` match your domain exactly
+- Check that DNS is properly configured through Cloudflare
+- Ensure the zone_name matches your Cloudflare zone
+- Routes may take a few minutes to propagate globally
+
+**6. Same-Domain Setup Issues**
+- If using Worker Routes, ensure `API_BASE_URL` is empty or matches your domain
+- Check that both Pages and Worker Routes are deployed to the same domain
+- Verify no CORS errors appear (they shouldn't with same-domain)
 
 ### Monitoring and Logs
 
