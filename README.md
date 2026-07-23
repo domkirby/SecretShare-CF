@@ -25,8 +25,8 @@ Each app is a standalone npm package (not an npm workspace) — see each app's o
 
 ## Crypto model (short version)
 
-- **Random-key mode** (default, currently the only mode implemented): a random AES-256-GCM key is generated in the browser, used to encrypt the secret, then hex-encoded and appended to the share link as a URL fragment (`https://.../s/{id}#{keyHex}`). The fragment never leaves the browser — it's not sent in HTTP requests and isn't logged by servers or proxies.
-- **Password mode** (planned, not yet implemented): a PBKDF2-derived key from a password the recipient already knows out-of-band. The salt and iteration count are not secret and are stored server-side; the password itself is never transmitted.
+- **Random-key mode** (default): a random AES-256-GCM key is generated in the browser, used to encrypt the secret, then hex-encoded and appended to the share link as a URL fragment (`https://.../s/{id}#{keyHex}`). The fragment never leaves the browser — it's not sent in HTTP requests and isn't logged by servers or proxies.
+- **Password mode**: a PBKDF2-HMAC-SHA-256 (350,000 iterations) key derived from a password the recipient already knows out-of-band. The salt and iteration count are not secret and are stored server-side; the password itself is never transmitted, and there is no server-side password verification — a wrong password still consumes the secret's one view, since the server has no way to check it without breaking the zero-knowledge model.
 - The server only ever stores/serves an opaque `ivBase64:ciphertextBase64` envelope — it cannot decrypt it under either mode.
 
 ## Deploying
@@ -50,7 +50,6 @@ See each app's README for full details, required environment variables, and avai
 ## Status
 
 - ✅ Backend API: create / probe / reveal / delete, atomic view-consumption, cron-based expiry sweep
-- ✅ Frontend: random-key mode create/reveal flow
-- ⬜ Password (PBKDF2) mode
+- ✅ Frontend: random-key and password (PBKDF2) mode create/reveal flows
 - ⬜ Turnstile (bot protection on creation)
 - ⬜ Rate limiting

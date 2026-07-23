@@ -149,5 +149,4 @@ See `schema.sql`. One table, `secrets`, no `users` table — this is an anonymou
 ## Known gaps (planned follow-up passes)
 
 - **Turnstile**: `src/lib/turnstile.ts` is a stub that always returns `true`. Real `siteverify` integration is designed but not implemented.
-- **Password/PBKDF2 mode**: the `kdf` field is already accepted and stored, but no frontend flow produces it yet.
 - **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets` and `POST /api/secrets/:id/reveal` in the meantime (see `DEPLOYMENT.md`).

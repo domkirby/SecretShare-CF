@@ -5,7 +5,8 @@ import Button from "primevue/button";
 import Message from "primevue/message";
 import Skeleton from "primevue/skeleton";
 import Tag from "primevue/tag";
-import { importKeyHex, decryptData } from "../lib/crypto";
+import Password from "primevue/password";
+import { importKeyHex, decryptData, deriveKeyFromPassword, base64ToSalt } from "../lib/crypto";
 import { probeSecret, revealSecret, deleteSecret, ApiError } from "../lib/api";
 
 type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
@@ -15,6 +16,8 @@ const id = route.params.id as string;
 const keyHex = window.location.hash.slice(1);
 
 const state = ref<ViewState>("loading");
+const requiresPassword = ref(false);
+const password = ref("");
 const viewsRemaining = ref<number | null>(null);
 const expiresAtDisplay = ref<string | null>(null);
 const plaintext = ref<string | null>(null);
@@ -23,18 +26,18 @@ const revealing = ref(false);
 const copied = ref(false);
 
 onMounted(async () => {
-  if (!keyHex) {
-    state.value = "error";
-    errorMessage.value = "This link is missing its decryption key.";
-    return;
-  }
   try {
     const probe = await probeSecret(id);
     if (!probe.exists) {
       state.value = "not-found";
       return;
     }
-    // TODO(pass 3): password-mode UI — probe.requiresPassword is always false this pass.
+    requiresPassword.value = probe.requiresPassword;
+    if (!requiresPassword.value && !keyHex) {
+      state.value = "error";
+      errorMessage.value = "This link is missing its decryption key.";
+      return;
+    }
     viewsRemaining.value = probe.viewsRemaining;
     expiresAtDisplay.value = new Date(probe.expiresAt).toLocaleString();
     state.value = "ready";
@@ -45,10 +48,14 @@ onMounted(async () => {
 });
 
 async function handleReveal() {
+  if (requiresPassword.value && !password.value) return;
   revealing.value = true;
   try {
-    const { ciphertext } = await revealSecret(id);
-    const key = await importKeyHex(keyHex);
+    const { ciphertext, kdf } = await revealSecret(id);
+    const key =
+      requiresPassword.value && kdf
+        ? await deriveKeyFromPassword(password.value, base64ToSalt(kdf.salt), kdf.iterations)
+        : await importKeyHex(keyHex);
     plaintext.value = await decryptData(ciphertext, key);
     state.value = "revealed";
   } catch (e) {
@@ -56,7 +63,9 @@ async function handleReveal() {
       state.value = "not-found";
     } else {
       state.value = "error";
-      errorMessage.value = "Failed to reveal or decrypt this secret. The link may be corrupted or already used.";
+      errorMessage.value = requiresPassword.value
+        ? "Failed to decrypt — the password may be wrong. This view has already been consumed, so a new link will be needed to try again."
+        : "Failed to reveal or decrypt this secret. The link may be corrupted or already used.";
     }
   } finally {
     revealing.value = false;
@@ -99,8 +108,30 @@ async function copyPlaintext() {
         <Tag :value="`${viewsRemaining} view(s) remaining`" severity="info" />
         <p>Expires: {{ expiresAtDisplay }}</p>
       </div>
+
+      <div v-if="requiresPassword" class="ss-field">
+        <label for="reveal-password">This secret is password protected</label>
+        <Password
+          id="reveal-password"
+          v-model="password"
+          toggleMask
+          :feedback="false"
+          style="width: 100%"
+          :inputStyle="{ width: '100%' }"
+        />
+        <p style="font-size: 0.85rem; margin-top: 0.4rem">
+          Revealing consumes a view even if the password is wrong, so double-check it before continuing.
+        </p>
+      </div>
+
       <div class="ss-actions">
-        <Button label="Reveal Secret" icon="pi pi-eye" :loading="revealing" @click="handleReveal" />
+        <Button
+          label="Reveal Secret"
+          icon="pi pi-eye"
+          :loading="revealing"
+          :disabled="requiresPassword && !password"
+          @click="handleReveal"
+        />
         <Button label="Burn Now Without Viewing" severity="danger" outlined icon="pi pi-trash" @click="handleBurn" />
       </div>
     </template>

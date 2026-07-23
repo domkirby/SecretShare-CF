@@ -26,6 +26,8 @@ function base64ToBuf(b64: string): Uint8Array {
   return out;
 }
 
+export const PBKDF2_ITERATIONS = 350_000;
+
 export async function generateRandomKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
     "encrypt",
@@ -41,6 +43,46 @@ export async function exportKeyHex(key: CryptoKey): Promise<string> {
 export async function importKeyHex(hex: string): Promise<CryptoKey> {
   const raw = hexToBuf(hex);
   return crypto.subtle.importKey("raw", raw as BufferSource, "AES-GCM", false, ["decrypt"]);
+}
+
+export function generateSalt(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(16));
+}
+
+export function saltToBase64(salt: Uint8Array): string {
+  return bufToBase64(salt);
+}
+
+export function base64ToSalt(b64: string): Uint8Array {
+  return base64ToBuf(b64);
+}
+
+export async function deriveKeyFromPassword(
+  password: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<CryptoKey> {
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
+    passwordKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+/** CSPRNG-based suggestion for password mode; not the only allowed password. */
+export function generateSecurePassword(length = 20): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
 export async function encryptData(

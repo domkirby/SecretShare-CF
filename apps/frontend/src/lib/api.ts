@@ -2,6 +2,7 @@ const API_BASE = import.meta.env.VITE_API_BASE as string;
 
 export interface CreateSecretRequest {
   ciphertext: string;
+  kdf?: { salt: string; iterations: number };
   maxViews: number;
   ttlMinutes?: number;
 }

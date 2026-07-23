@@ -1,10 +1,10 @@
 # SecretShare Frontend (`apps/frontend`)
 
-A Vue 3 + Vite SPA for Cloudflare Pages. This is the browser-side half of the zero-knowledge model: all encryption and decryption happen here, in-browser, via WebCrypto. The server (`apps/api`) never sees plaintext or (in random-key mode) the key.
+A Vue 3 + Vite SPA for Cloudflare Pages. This is the browser-side half of the zero-knowledge model: all encryption and decryption happen here, in-browser, via WebCrypto. The server (`apps/api`) never sees plaintext, and never sees the key or password either.
 
 This is a standalone npm package, deployed independently of `apps/api` — it only needs to know the API's base URL.
 
-Currently implements **random-key mode only**. Password (PBKDF2) mode, Turnstile, and rate-limiting UI are planned follow-up passes.
+Supports both **random-key mode** and **password mode**. Turnstile and rate-limiting UI are planned follow-up passes.
 
 ## Requirements
 
@@ -58,12 +58,17 @@ Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share
 
 ## How the crypto flow works
 
-`src/lib/crypto.ts` — AES-256-GCM via WebCrypto:
+`src/lib/crypto.ts` — AES-256-GCM via WebCrypto, in two key-derivation flavors:
 
+**Random-key mode**
 - **Create**: generate a random 256-bit key → encrypt the secret text with a fresh random 12-byte IV → base64-encode IV and ciphertext, join as `ivBase64:ciphertextBase64` (this envelope is what's sent to the API) → export the key as 64 hex characters → append to the share URL as a fragment: `https://<host>/s/{id}#{keyHex}`.
 - **Reveal**: read the id from the route, read the key hex from `window.location.hash` (deliberately not via vue-router), probe the secret (does not consume a view), then on explicit user action call reveal (consumes a view), split the returned envelope on `:`, base64-decode both halves, decrypt with the imported key.
+- The key never appears in any HTTP request body, query string, or path — only in the fragment, which browsers never transmit.
 
-The key never appears in any HTTP request body, query string, or path — only in the fragment, which browsers never transmit.
+**Password mode**
+- **Create**: generate a random 16-byte salt → derive a 256-bit AES-GCM key from the user's password via PBKDF2-HMAC-SHA-256 at `PBKDF2_ITERATIONS` (350,000) → encrypt as above. The share link is just `https://<host>/s/{id}` (no fragment — there's no key to embed). The salt and iteration count are sent to the API alongside the ciphertext as `kdf: { salt, iterations }` and stored server-side; they aren't secret, they're just parameters the recipient needs to re-derive the same key from the password. `CreateSecret.vue` also offers a "Suggest a password" button (`generateSecurePassword()`, CSPRNG-based) for users who don't want to pick their own.
+- **Reveal**: `GET /api/secrets/:id` reports `requiresPassword: true`; the view prompts for a password before allowing reveal. Clicking reveal calls `POST /:id/reveal` (**consuming the view**), then derives the key from the entered password using the `kdf.salt`/`kdf.iterations` returned in that same response, and decrypts. There is no way to verify the password before consuming the view — the server has no way to check it without seeing the key, so **a wrong password still burns the one view**; the UI warns about this before the reveal button is enabled.
+- The password itself is never sent to the server in any form — only the (non-secret) salt and iteration count travel over the wire.
 
 ## `src/lib/api.ts`
 
@@ -75,6 +80,5 @@ Built with [PrimeVue](https://primevue.org/) (Aura theme preset) for form contro
 
 ## Known gaps (planned follow-up passes)
 
-- Password/PBKDF2 mode UI (the backend already accepts a `kdf` field; there's a `// TODO(pass 3)` marker in `RevealSecret.vue` where the password-entry branch will go)
 - Turnstile widget on the create form
 - Any client-side rate-limit affordances (handled server-side/dashboard-side for now)
