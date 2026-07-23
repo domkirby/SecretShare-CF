@@ -104,7 +104,7 @@ async function copyPlaintext() {
 <template>
   <div class="ss-card">
     <div class="ss-header">
-      <h1>SecretShare</h1>
+      <h1><i class="pi pi-shield"></i> SecretShare</h1>
     </div>
 
     <div v-if="state === 'loading'">
@@ -132,13 +132,13 @@ async function copyPlaintext() {
           v-model="password"
           toggleMask
           :feedback="false"
-          style="width: 100%"
+          class="ss-w-full"
           :inputStyle="{ width: '100%' }"
         />
-        <Message v-if="passwordError" severity="error" :closable="false" size="small" style="margin-top: 0.5rem">
+        <Message v-if="passwordError" severity="error" :closable="false" size="small" class="ss-mt">
           {{ passwordError }}
         </Message>
-        <p style="font-size: 0.85rem; margin-top: 0.4rem">
+        <p class="ss-hint">
           We'll check your password before this counts as a view — an incorrect password can be retried.
         </p>
       </div>

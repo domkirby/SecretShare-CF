@@ -158,7 +158,7 @@ function resetForm() {
 <template>
   <div class="ss-card">
     <div class="ss-header">
-      <h1>SecretShare</h1>
+      <h1><i class="pi pi-shield"></i> SecretShare</h1>
       <p>Share a secret with a self-destructing link. Nothing is sent to the server unencrypted.</p>
     </div>
 
@@ -181,7 +181,7 @@ function resetForm() {
           v-model="secretText"
           rows="6"
           autoResize
-          style="width: 100%"
+          class="ss-w-full"
           placeholder="Paste the text you want to share..."
         />
         <Message v-if="plaintextTooLarge" severity="warn" :closable="false" size="small">
@@ -196,38 +196,40 @@ function resetForm() {
           v-model="password"
           toggleMask
           :feedback="true"
-          style="width: 100%"
+          class="ss-w-full"
           :inputStyle="{ width: '100%' }"
         />
-        <p style="font-size: 0.85rem; margin-top: 0.4rem">
+        <p class="ss-hint">
           Share this password with the recipient separately from the link (e.g. a phone call or a different
           chat thread) — it is never included in the link itself.
         </p>
         <Button label="Suggest a password" text size="small" @click="suggestPassword" />
       </div>
 
-      <div class="ss-field">
-        <label for="max-views">Max views</label>
-        <Select
-          id="max-views"
-          v-model="maxViews"
-          :options="maxViewsOptions"
-          optionLabel="label"
-          optionValue="value"
-          style="width: 100%"
-        />
-      </div>
+      <div class="ss-field-row">
+        <div class="ss-field">
+          <label for="max-views">Max views</label>
+          <Select
+            id="max-views"
+            v-model="maxViews"
+            :options="maxViewsOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="ss-w-full"
+          />
+        </div>
 
-      <div class="ss-field">
-        <label for="ttl">Expires after</label>
-        <Select
-          id="ttl"
-          v-model="ttlMinutes"
-          :options="ttlOptions"
-          optionLabel="label"
-          optionValue="value"
-          style="width: 100%"
-        />
+        <div class="ss-field">
+          <label for="ttl">Expires after</label>
+          <Select
+            id="ttl"
+            v-model="ttlMinutes"
+            :options="ttlOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="ss-w-full"
+          />
+        </div>
       </div>
 
       <div v-if="turnstileEnabled" class="ss-field">
@@ -240,7 +242,7 @@ function resetForm() {
         />
       </div>
 
-      <Message v-if="errorMessage" severity="error" :closable="false" style="margin-bottom: 1rem">
+      <Message v-if="errorMessage" severity="error" :closable="false" class="ss-mb">
         {{ errorMessage }}
       </Message>
 
@@ -250,7 +252,7 @@ function resetForm() {
     </template>
 
     <template v-else>
-      <Message severity="success" :closable="false" style="margin-bottom: 1rem">
+      <Message severity="success" :closable="false" class="ss-mb">
         Your secret link is ready. Expires: {{ expiresAtDisplay }}
       </Message>
 

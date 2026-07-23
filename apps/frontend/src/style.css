@@ -2,6 +2,10 @@
   box-sizing: border-box;
 }
 
+:root {
+  color-scheme: light dark;
+}
+
 body {
   margin: 0;
   font-family:
@@ -10,8 +14,8 @@ body {
     "Segoe UI",
     Roboto,
     sans-serif;
-  background: var(--p-content-background, #f4f6f8);
-  color: var(--p-text-color, #1e1e1e);
+  background: light-dark(#eff4fb, #0f1720);
+  color: var(--p-text-color, light-dark(#1e1e1e, #eae6f2));
 }
 
 #app-shell {
@@ -19,22 +23,46 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 2rem 1rem;
+  padding: 3rem 1rem;
 }
 
 .ss-card {
   width: 100%;
   max-width: 560px;
+  background: light-dark(#ffffff, #1a2433);
+  border: 1px solid light-dark(transparent, rgba(255, 255, 255, 0.06));
+  border-radius: 28px;
+  padding: 2rem;
+  box-shadow:
+    0 1px 2px light-dark(rgba(20, 40, 80, 0.06), rgba(0, 0, 0, 0.3)),
+    0 20px 45px -12px light-dark(rgba(30, 60, 110, 0.14), rgba(0, 0, 0, 0.5));
 }
 
 .ss-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
   text-align: center;
 }
 
 .ss-header h1 {
-  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.4rem;
+  color: light-dark(#1d4ed8, #93c5fd);
+}
+
+.ss-header .pi {
+  color: light-dark(#2563eb, #60a5fa);
+}
+
+.ss-header p {
   margin: 0;
+  color: light-dark(#55606e, #9fb0c0);
+  font-size: 0.9rem;
 }
 
 .ss-field {
@@ -48,6 +76,36 @@ body {
   font-size: 0.9rem;
 }
 
+.ss-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 480px) {
+  .ss-field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ss-hint {
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0;
+  color: light-dark(#55606e, #9fb0c0);
+}
+
+.ss-w-full {
+  width: 100%;
+}
+
+.ss-mb {
+  margin-bottom: 1rem;
+}
+
+.ss-mt {
+  margin-top: 0.5rem;
+}
+
 .ss-actions {
   display: flex;
   gap: 0.75rem;
@@ -57,9 +115,10 @@ body {
 .ss-secret-text {
   white-space: pre-wrap;
   word-break: break-word;
-  background: var(--p-content-background, #f4f6f8);
-  border: 1px solid var(--p-content-border-color, #dcdfe3);
-  border-radius: 6px;
-  padding: 1rem;
+  background: light-dark(#dbeafe, #1c2e4a);
+  border: none;
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
 }
