@@ -67,7 +67,7 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 | Var | Purpose | Current default |
 |---|---|---|
 | `ALLOWED_ORIGIN` | Comma-separated list of origins allowed via CORS. Must include every frontend origin (e.g. your Pages dev/preview/prod domains). | `http://localhost:5173,http://localhost:8788` |
-| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`. Currently stubbed — see below. | `"false"` |
+| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
 | `MAX_SECRET_BYTES` | Max byte length of the `ciphertext` field accepted on create. Requests over this get a 413. | `"65536"` |
 | `DEFAULT_TTL_MINUTES` | TTL applied when `ttlMinutes` is omitted on create. | `"1440"` (1 day) |
 | `MAX_TTL_MINUTES` | Upper bound for `ttlMinutes`; requests over this get a 400. | `"10080"` (7 days) |
@@ -86,9 +86,11 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 
 | Secret | Purpose | Required when |
 |---|---|---|
-| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key | Not yet used — `verifyTurnstile()` in `src/lib/turnstile.ts` is currently a stub that always returns `true`. Wiring this up is a planned follow-up pass; setting the secret now has no effect. |
+| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
 
-Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings (see `DEPLOYMENT.md`).
+Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings (see `DEPLOYMENT.md`). For local dev, put it in a gitignored `.dev.vars` file instead (`TURNSTILE_ENABLED=true` / `TURNSTILE_SECRET_KEY=...`) — see [Cloudflare's Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) for dummy site/secret keys that always pass or always fail, useful for exercising this locally without a real Turnstile site.
+
+The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one.
 
 ## API contract
 
@@ -105,7 +107,7 @@ Create a secret.
   "kdf": { "salt": "b64", "iterations": 350000 }, // optional — omit entirely for random-key mode
   "maxViews": 1,
   "ttlMinutes": 1440,        // optional, defaults to DEFAULT_TTL_MINUTES
-  "turnstileToken": "..."    // optional/ignored while Turnstile is stubbed
+  "turnstileToken": "..."    // required when TURNSTILE_ENABLED="true"; ignored otherwise
 }
 
 // response 201
@@ -148,5 +150,4 @@ See `schema.sql`. One table, `secrets`, no `users` table — this is an anonymou
 
 ## Known gaps (planned follow-up passes)
 
-- **Turnstile**: `src/lib/turnstile.ts` is a stub that always returns `true`. Real `siteverify` integration is designed but not implemented.
 - **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets` and `POST /api/secrets/:id/reveal` in the meantime (see `DEPLOYMENT.md`).

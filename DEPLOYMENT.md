@@ -40,14 +40,18 @@ Also review the other `[vars]` in that file before your first deploy — in part
 3. Set the **root directory** to `apps/api` — this is a monorepo, so Cloudflare needs to know which subfolder to build from.
 4. Build settings: Cloudflare auto-detects `wrangler.toml` and uses `wrangler deploy` as the deploy command. No custom build command is needed (there's no compile step — Wrangler bundles the Worker itself). If prompted for a build command, leave it empty/default.
 
-### 1.4 Set secrets
+### 1.4 (Optional) Turnstile bot protection
 
-`TURNSTILE_SECRET_KEY` is planned but not yet wired up server-side (see `apps/api/README.md`), so there's nothing required here yet. When it is wired up:
+Skip this if you're not enabling Turnstile — `TURNSTILE_ENABLED` defaults to `"false"` in `wrangler.toml`, which makes `POST /api/secrets` accept requests with no token at all.
 
-1. Worker project → **Settings → Variables and Secrets**.
-2. Add `TURNSTILE_SECRET_KEY` as a **Secret** (encrypted), not a plain variable — never put it in `wrangler.toml`.
+To enable it:
 
-Plain `[vars]` (`ALLOWED_ORIGIN`, `TURNSTILE_ENABLED`, `MAX_SECRET_BYTES`, etc.) don't need to be set here — they come from `wrangler.toml` in the repo. Only add dashboard variables if you need an override that differs from what's committed (e.g. a per-environment value you don't want in git).
+1. Cloudflare dashboard → **Turnstile** → **Add a site**. Register the domain(s) your frontend will be served from (its Pages domain and/or custom domain) and note the **Site Key** and **Secret Key** it gives you.
+2. In `apps/api/wrangler.toml`, set `TURNSTILE_ENABLED = "true"` and push.
+3. Worker project → **Settings → Variables and Secrets** → add `TURNSTILE_SECRET_KEY` as a **Secret** (encrypted) with the Secret Key from step 1 — never put this in `wrangler.toml`.
+4. When you set up the Pages project in step 2, set `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>` there.
+
+Plain `[vars]` (`ALLOWED_ORIGIN`, `TURNSTILE_ENABLED`, `MAX_SECRET_BYTES`, etc.) don't need to be set in the dashboard — they come from `wrangler.toml` in the repo. Only add dashboard variables if you need an override that differs from what's committed (e.g. a per-environment value you don't want in git).
 
 ### 1.5 First deploy
 
@@ -75,6 +79,7 @@ Once you know your final frontend domain (next section), come back to `apps/api/
    - **Build output directory**: `dist`
 4. **Environment variables** (Pages project → **Settings → Environment variables**, set for both Production and Preview):
    - `VITE_API_BASE` = the API Worker's URL from step 1 (e.g. `https://secretshare-api.<your-subdomain>.workers.dev` or your custom domain). This is read at **build time** by Vite, so it must be set here before deploying, not adjustable after the fact without a rebuild.
+   - If you enabled Turnstile in step 1.4: `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>`. The site key is public (it's meant to ship in client JS), so it's fine as a plain variable, not a secret.
 5. Deploy. Cloudflare builds and serves the SPA; `public/_redirects` (already committed) makes sure `/s/:id` links work on direct load, since the app uses `vue-router`'s history mode.
 6. (Optional) **Settings → Custom domains** to attach your own domain instead of the default `*.pages.dev` one.
 

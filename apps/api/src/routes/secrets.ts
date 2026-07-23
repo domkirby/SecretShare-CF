@@ -6,6 +6,7 @@ export interface Env {
   DB: D1Database;
   ALLOWED_ORIGIN: string;
   TURNSTILE_ENABLED: string;
+  TURNSTILE_SECRET_KEY?: string;
   MAX_SECRET_BYTES: string;
   DEFAULT_TTL_MINUTES: string;
   MAX_TTL_MINUTES: string;
@@ -83,7 +84,11 @@ secrets.post("/", async (c) => {
     kdfIterations = body.kdf.iterations;
   }
 
-  const turnstileOk = await verifyTurnstile(c.env, body.turnstileToken);
+  const turnstileOk = await verifyTurnstile(
+    c.env,
+    body.turnstileToken,
+    c.req.header("CF-Connecting-IP")
+  );
   if (!turnstileOk) {
     return c.json({ error: "Turnstile verification failed" }, 403);
   }

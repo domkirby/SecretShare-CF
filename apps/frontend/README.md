@@ -4,7 +4,7 @@ A Vue 3 + Vite SPA for Cloudflare Pages. This is the browser-side half of the ze
 
 This is a standalone npm package, deployed independently of `apps/api` — it only needs to know the API's base URL.
 
-Supports both **random-key mode** and **password mode**. Turnstile and rate-limiting UI are planned follow-up passes.
+Supports both **random-key mode** and **password mode**, plus an optional Turnstile challenge on creation. Rate-limiting UI is a planned follow-up pass.
 
 ## Requirements
 
@@ -39,13 +39,15 @@ Starts Vite on `http://localhost:5173`. Make sure `apps/api` is also running (se
 
 ## Configuration
 
-All config is a single Vite env var, read at build time and exposed as `import.meta.env.VITE_API_BASE`.
+Config is a handful of Vite env vars, read at **build time** and exposed as `import.meta.env.*`.
 
 | Var | Purpose | Example |
 |---|---|---|
 | `VITE_API_BASE` | Base URL of the `apps/api` Worker — no trailing slash, no `/api` suffix (that's added per-call). | `http://localhost:8787` (dev) / `https://secretshare-api.<you>.workers.dev` or a custom domain (prod) |
+| `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on the create form and blocks submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or a create request the API will reject. | `false` |
+| `VITE_TURNSTILE_SITE_KEY` | The Turnstile **site key** (public, safe to ship in client JS) for your Cloudflare Turnstile widget. Only read when `VITE_TURNSTILE_ENABLED` is `true`. | `0x4AAAAAAA...` |
 
-Copy `.env.example` to `.env.local` for local dev. For Cloudflare Pages, this is set as a **build-time environment variable** in the Pages project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes it into the built JS, so it must be set before the Pages build runs, not read at request time.
+Copy `.env.example` to `.env.local` for local dev. For Cloudflare Pages, these are set as **build-time environment variables** in the Pages project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the Pages build runs, not read at request time.
 
 ## Routes
 
@@ -74,11 +76,16 @@ Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share
 
 Thin typed wrapper around the 4 API endpoints (`createSecret`, `probeSecret`, `revealSecret`, `deleteSecret`), matching `apps/api`'s contract exactly — see [`apps/api/README.md`](../api/README.md#api-contract) for the full request/response shapes. Non-2xx responses throw `ApiError(status, message)`, except a 404 from `probeSecret`, which is a valid `{ exists: false }` result, not an error.
 
+## Turnstile
+
+`src/components/TurnstileWidget.vue` lazily loads Cloudflare's `turnstile/v0/api.js` script (once per page, even if the component is used more than once) and renders a widget for the given `site-key` prop, emitting `verified`/`expired`/`error` events. `CreateSecret.vue` only mounts it when `VITE_TURNSTILE_ENABLED === "true"`, and disables the submit button until a token has been emitted; the token is sent as `turnstileToken` on create and reset (`widget.reset()`) after any failed submission, since a token is single-use.
+
+This is a **UX gate only** — the actual security boundary is the API's own `siteverify` call (see [`apps/api/README.md`](../api/README.md)), which always re-checks the token server-side regardless of what the frontend does.
+
 ## UI
 
 Built with [PrimeVue](https://primevue.org/) (Aura theme preset) for form controls, buttons, and feedback components — no Tailwind or other CSS framework.
 
 ## Known gaps (planned follow-up passes)
 
-- Turnstile widget on the create form
 - Any client-side rate-limit affordances (handled server-side/dashboard-side for now)

@@ -51,5 +51,5 @@ See each app's README for full details, required environment variables, and avai
 
 - ✅ Backend API: create / probe / reveal / delete, atomic view-consumption, cron-based expiry sweep
 - ✅ Frontend: random-key and password (PBKDF2) mode create/reveal flows
-- ⬜ Turnstile (bot protection on creation)
+- ✅ Turnstile (bot protection on creation, both sides)
 - ⬜ Rate limiting

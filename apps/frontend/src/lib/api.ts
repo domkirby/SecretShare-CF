@@ -5,6 +5,7 @@ export interface CreateSecretRequest {
   kdf?: { salt: string; iterations: number };
   maxViews: number;
   ttlMinutes?: number;
+  turnstileToken?: string;
 }
 
 export interface CreateSecretResponse {

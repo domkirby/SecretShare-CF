@@ -6,6 +6,7 @@ import SelectButton from "primevue/selectbutton";
 import Password from "primevue/password";
 import Button from "primevue/button";
 import Message from "primevue/message";
+import TurnstileWidget from "../components/TurnstileWidget.vue";
 import {
   generateRandomKey,
   encryptData,
@@ -19,6 +20,9 @@ import {
 import { createSecret, deleteSecret, ApiError } from "../lib/api";
 
 const MAX_PLAINTEXT_WARN_BYTES = 45_000;
+
+const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
 
 type Mode = "random" | "password";
 
@@ -40,6 +44,8 @@ const expiresAtDisplay = ref<string | null>(null);
 const usedPassword = ref<string | null>(null);
 const copied = ref(false);
 const passwordCopied = ref(false);
+const turnstileToken = ref<string | null>(null);
+const turnstileWidget = ref<InstanceType<typeof TurnstileWidget> | null>(null);
 
 const maxViewsOptions = Array.from({ length: 10 }, (_, i) => ({ label: String(i + 1), value: i + 1 }));
 
@@ -57,6 +63,7 @@ const plaintextTooLarge = computed(() => {
 const canSubmit = computed(() => {
   if (!secretText.value) return false;
   if (mode.value === "password" && !password.value) return false;
+  if (turnstileEnabled && !turnstileToken.value) return false;
   return true;
 });
 
@@ -89,6 +96,7 @@ async function handleSubmit() {
       kdf,
       maxViews: maxViews.value,
       ttlMinutes: ttlMinutes.value,
+      turnstileToken: turnstileToken.value ?? undefined,
     });
     secretId.value = id;
     expiresAtDisplay.value = new Date(expiresAt).toLocaleString();
@@ -99,6 +107,8 @@ async function handleSubmit() {
         : `${window.location.origin}/s/${id}`;
   } catch (e) {
     errorMessage.value = e instanceof ApiError ? e.message : "Something went wrong. Please try again.";
+    turnstileWidget.value?.reset();
+    turnstileToken.value = null;
   } finally {
     loading.value = false;
   }
@@ -138,6 +148,8 @@ function resetForm() {
   expiresAtDisplay.value = null;
   usedPassword.value = null;
   errorMessage.value = null;
+  turnstileToken.value = null;
+  turnstileWidget.value?.reset();
 }
 </script>
 
@@ -213,6 +225,16 @@ function resetForm() {
           optionLabel="label"
           optionValue="value"
           style="width: 100%"
+        />
+      </div>
+
+      <div v-if="turnstileEnabled" class="ss-field">
+        <TurnstileWidget
+          ref="turnstileWidget"
+          :site-key="turnstileSiteKey"
+          @verified="(token) => (turnstileToken = token)"
+          @expired="turnstileToken = null"
+          @error="turnstileToken = null"
         />
       </div>
 
