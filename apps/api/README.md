@@ -66,7 +66,7 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 
 | Var | Purpose | Current default |
 |---|---|---|
-| `ALLOWED_ORIGIN` | Comma-separated list of origins allowed via CORS. Must include every frontend origin (e.g. your Pages dev/preview/prod domains). | `http://localhost:5173,http://localhost:8788` |
+| `ALLOWED_ORIGIN` | Comma-separated list of origins allowed via CORS. Must include every frontend origin (e.g. your frontend's dev/preview/prod Workers domains). | `http://localhost:5173,http://localhost:8788` |
 | `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
 | `MAX_SECRET_BYTES` | Max byte length of the `ciphertext` field accepted on create. Requests over this get a 413. | `"65536"` |
 | `DEFAULT_TTL_MINUTES` | TTL applied when `ttlMinutes` is omitted on create. | `"1440"` (1 day) |

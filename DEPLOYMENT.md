@@ -2,17 +2,17 @@
 
 This describes a **pull** deployment: you connect this GitHub repo to Cloudflare once, and Cloudflare builds and deploys both apps whenever you push — no local `wrangler deploy` and no CI pipeline of your own required. Each app is connected as its own Cloudflare project, since they deploy independently (see the root [`README.md`](README.md)).
 
-You'll set up two things in the Cloudflare dashboard:
+You'll set up two things in the Cloudflare dashboard, both as **Workers** projects (via Cloudflare's Git-connected Workers Builds) — `apps/frontend` is a Workers *static-assets* project (no server-side Worker code, just `[assets]`-served files with SPA fallback), while `apps/api` is a regular code Worker:
 
-1. A **Workers** project for `apps/api` (via Cloudflare's Git-connected Workers Builds)
-2. A **Pages** project for `apps/frontend`
+1. `apps/api`
+2. `apps/frontend`
 
 Do the API first — the frontend needs its deployed URL for `VITE_API_BASE`.
 
 ## Prerequisites
 
 - This repo pushed to GitHub (or GitLab), with Cloudflare granted access to it.
-- A Cloudflare account with Workers + Pages + D1 available (all on the free tier for this project's scale).
+- A Cloudflare account with Workers + D1 available (all on the free tier for this project's scale).
 
 ---
 
@@ -46,10 +46,10 @@ Skip this if you're not enabling Turnstile — `TURNSTILE_ENABLED` defaults to `
 
 To enable it:
 
-1. Cloudflare dashboard → **Turnstile** → **Add a site**. Register the domain(s) your frontend will be served from (its Pages domain and/or custom domain) and note the **Site Key** and **Secret Key** it gives you.
+1. Cloudflare dashboard → **Turnstile** → **Add a site**. Register the domain(s) your frontend will be served from (its `workers.dev` domain and/or custom domain) and note the **Site Key** and **Secret Key** it gives you.
 2. In `apps/api/wrangler.toml`, set `TURNSTILE_ENABLED = "true"` and push.
 3. Worker project → **Settings → Variables and Secrets** → add `TURNSTILE_SECRET_KEY` as a **Secret** (encrypted) with the Secret Key from step 1 — never put this in `wrangler.toml`.
-4. When you set up the Pages project in step 2, set `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>` there.
+4. When you set up the frontend project in step 2, set `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>` there.
 
 Plain `[vars]` (`ALLOWED_ORIGIN`, `TURNSTILE_ENABLED`, `MAX_SECRET_BYTES`, etc.) don't need to be set in the dashboard — they come from `wrangler.toml` in the repo. Only add dashboard variables if you need an override that differs from what's committed (e.g. a per-environment value you don't want in git).
 
@@ -68,20 +68,19 @@ Once you know your final frontend domain (next section), come back to `apps/api/
 
 ---
 
-## 2. Deploy the frontend (`apps/frontend`) as a Pages project
+## 2. Deploy the frontend (`apps/frontend`) as a Workers static-assets project
 
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Workers** → **Import a repository**.
 2. Select the same repo/branch.
-3. Build settings:
-   - **Root directory**: `apps/frontend`
-   - **Framework preset**: Vite (or set manually — see below)
-   - **Build command**: `npm run build`
-   - **Build output directory**: `dist`
-4. **Environment variables** (Pages project → **Settings → Environment variables**, set for both Production and Preview):
+3. Set the **root directory** to `apps/frontend`.
+4. Build settings: **Build command**: `npm run build`. Cloudflare auto-detects [`apps/frontend/wrangler.toml`](apps/frontend/wrangler.toml), whose `[assets]` block (`directory = "./dist"`, `not_found_handling = "single-page-application"`) tells it to serve the built `dist/` folder as static assets, falling back to `index.html` for any request that doesn't match a real file — this is what makes direct loads of `/s/:id` links work, since the app uses `vue-router`'s history mode. There's no server-side Worker code for this app (no `main` in its `wrangler.toml`), so nothing else to configure here.
+5. **Environment variables** (project → **Settings → Variables and Secrets**, set for both Production and Preview):
    - `VITE_API_BASE` = the API Worker's URL from step 1 (e.g. `https://secretshare-api.<your-subdomain>.workers.dev` or your custom domain). This is read at **build time** by Vite, so it must be set here before deploying, not adjustable after the fact without a rebuild.
    - If you enabled Turnstile in step 1.4: `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>`. The site key is public (it's meant to ship in client JS), so it's fine as a plain variable, not a secret.
-5. Deploy. Cloudflare builds and serves the SPA; `public/_redirects` (already committed) makes sure `/s/:id` links work on direct load, since the app uses `vue-router`'s history mode.
-6. (Optional) **Settings → Custom domains** to attach your own domain instead of the default `*.pages.dev` one.
+6. Deploy.
+7. (Optional) **Settings → Domains & Routes** to attach your own domain instead of the default `*.workers.dev` one.
+
+**Avoid `public/_redirects` for SPA fallback on this platform.** Workers Static Assets applies `_redirects` rules unconditionally — "always followed, regardless of whether or not an asset matches the incoming request" per Cloudflare's docs — so a broad SPA-fallback rule there (e.g. `/* /index.html 200`) ends up redirecting real asset requests (`/assets/*.js`) too, breaking the app. `not_found_handling = "single-page-application"` in `wrangler.toml` is the correct mechanism instead, since it only kicks in when no real asset matches.
 
 ### Closing the loop
 
@@ -97,7 +96,7 @@ Because both are Git-connected, updates are just `git push` to the connected bra
 
 Same checks as local dev (see each app's README), just against the deployed URLs:
 
-1. Open the Pages URL, create a secret, confirm a share link appears.
+1. Open the frontend's Workers URL, create a secret, confirm a share link appears.
 2. Open the share link (ideally in a private window) and reveal it — confirm the plaintext round-trips correctly.
 3. Reload the same reveal link — confirm it now reports as expired/not-found (view consumed).
 4. Check the Worker's **Logs** tab (Real-time Logs) if anything 500s, and confirm the D1 database is the real one from step 1.1, not left pointing at a placeholder ID.

@@ -1,6 +1,6 @@
 # SecretShare Frontend (`apps/frontend`)
 
-A Vue 3 + Vite SPA for Cloudflare Pages. This is the browser-side half of the zero-knowledge model: all encryption and decryption happen here, in-browser, via WebCrypto. The server (`apps/api`) never sees plaintext, and never sees the key or password either.
+A Vue 3 + Vite SPA deployed as a Cloudflare Workers static-assets project. This is the browser-side half of the zero-knowledge model: all encryption and decryption happen here, in-browser, via WebCrypto. The server (`apps/api`) never sees plaintext, and never sees the key or password either.
 
 This is a standalone npm package, deployed independently of `apps/api` — it only needs to know the API's base URL.
 
@@ -47,7 +47,7 @@ Config is a handful of Vite env vars, read at **build time** and exposed as `imp
 | `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on the create form and blocks submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or a create request the API will reject. | `false` |
 | `VITE_TURNSTILE_SITE_KEY` | The Turnstile **site key** (public, safe to ship in client JS) for your Cloudflare Turnstile widget. Only read when `VITE_TURNSTILE_ENABLED` is `true`. | `0x4AAAAAAA...` |
 
-Copy `.env.example` to `.env.local` for local dev. For Cloudflare Pages, these are set as **build-time environment variables** in the Pages project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the Pages build runs, not read at request time.
+Copy `.env.example` to `.env.local` for local dev. On Cloudflare, these are set as **build-time environment variables** in the Workers project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the build runs, not read at request time.
 
 ## Routes
 
@@ -56,7 +56,13 @@ Copy `.env.example` to `.env.local` for local dev. For Cloudflare Pages, these a
 | `/` | `CreateSecret.vue` | Compose a secret, pick max views / expiry, encrypt client-side, submit, get a share link |
 | `/s/:id` | `RevealSecret.vue` | Probe a secret's status, then explicitly reveal + decrypt it client-side |
 
-Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{keyHex}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`); Cloudflare Pages does this via `public/_redirects` (`/*  /  200`), which is committed in this repo. The rule targets `/` rather than `/index.html` — the latter currently trips a (confirmed, still-open) false-positive "infinite loop" check in Cloudflare's deploy-time `_redirects` validation ([cloudflare/workers-sdk#10992](https://github.com/cloudflare/workers-sdk/issues/10992)); `index.html` also sets `<base href="/" />` as a belt-and-suspenders companion to that workaround.
+Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{keyHex}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`), configured via `wrangler.toml`'s `[assets]` block:
+```toml
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+```
+`not_found_handling = "single-page-application"` serves `index.html` only when a request doesn't match a real file in `directory` — real asset requests (`/assets/*.js`, etc.) are still served directly. This replaced an earlier `public/_redirects`-based approach (`/*  /index.html  200` or `/*  /  200`): on Workers Static Assets, `_redirects` rules are unconditional ("always followed, regardless of whether or not an asset matches the incoming request" per Cloudflare's docs), so a broad SPA-fallback rule there ends up redirecting real asset requests too, breaking the app. `index.html` still sets `<base href="/" />` from that earlier attempt — harmless, left in place.
 
 ## How the crypto flow works
 

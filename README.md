@@ -1,6 +1,6 @@
 # SecretShare-CF
 
-A zero-knowledge, self-destructing secret sharing tool, built natively for Cloudflare. This is a from-scratch rewrite of [domkirby/SecretShare](https://github.com/domkirby/SecretShare) (originally PHP/MySQL) targeting Cloudflare Pages + Workers + D1 instead.
+A zero-knowledge, self-destructing secret sharing tool, built natively for Cloudflare. This is a from-scratch rewrite of [domkirby/SecretShare](https://github.com/domkirby/SecretShare) (originally PHP/MySQL) targeting Cloudflare Workers + D1 instead.
 
 The server never sees plaintext, and in random-key mode it never sees the encryption key either — encryption/decryption happen entirely in the browser via WebCrypto, and the key is passed around as a URL fragment (`#...`), which browsers never send over the network.
 
@@ -10,14 +10,14 @@ Two independently deployable pieces:
 
 | Component | Tech | Where it lives | Docs |
 |---|---|---|---|
-| **Frontend** | Vue 3 + Vite (SPA) | Cloudflare Pages | [`apps/frontend/README.md`](apps/frontend/README.md) |
+| **Frontend** | Vue 3 + Vite (SPA) | Cloudflare Workers (static assets) | [`apps/frontend/README.md`](apps/frontend/README.md) |
 | **API** | Hono (TypeScript) on Workers + D1 | Cloudflare Workers | [`apps/api/README.md`](apps/api/README.md) |
 
-They are deliberately **not** wired together via Pages Functions — the API is a standalone Worker with its own domain/lifecycle, so it can be deployed, redeployed, or moved to a different hostname without touching the frontend. The frontend just needs to know the API's base URL (`VITE_API_BASE`).
+They are deliberately **not** wired together as a single Worker — the API is a standalone Worker with its own domain/lifecycle, so it can be deployed, redeployed, or moved to a different hostname without touching the frontend. The frontend just needs to know the API's base URL (`VITE_API_BASE`).
 
 ```
 apps/
-├── frontend/   # Cloudflare Pages — Vue 3 SPA
+├── frontend/   # Cloudflare Workers (static assets) — Vue 3 SPA
 └── api/        # Cloudflare Worker — Hono + D1
 ```
 
