@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-07-23"
 
 [vars]
-ALLOWED_ORIGIN = "http://localhost:5173,http://localhost:8788"
+ALLOWED_ORIGIN = "https://share.domkirby.com"
 TURNSTILE_ENABLED = "false"
 MAX_SECRET_BYTES = "65536"
 DEFAULT_TTL_MINUTES = "1440"
