@@ -1,0 +1,65 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  background: var(--p-content-background, #f4f6f8);
+  color: var(--p-text-color, #1e1e1e);
+}
+
+#app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem 1rem;
+}
+
+.ss-card {
+  width: 100%;
+  max-width: 560px;
+}
+
+.ss-header {
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.ss-header h1 {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.ss-field {
+  margin-bottom: 1.25rem;
+}
+
+.ss-field label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.ss-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ss-secret-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--p-content-background, #f4f6f8);
+  border: 1px solid var(--p-content-border-color, #dcdfe3);
+  border-radius: 6px;
+  padding: 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
