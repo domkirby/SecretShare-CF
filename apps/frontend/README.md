@@ -56,7 +56,7 @@ Copy `.env.example` to `.env.local` for local dev. For Cloudflare Pages, these a
 | `/` | `CreateSecret.vue` | Compose a secret, pick max views / expiry, encrypt client-side, submit, get a share link |
 | `/s/:id` | `RevealSecret.vue` | Probe a secret's status, then explicitly reveal + decrypt it client-side |
 
-Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{keyHex}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`); Cloudflare Pages does this via `public/_redirects` (`/*  /index.html  200`), which is committed in this repo.
+Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{keyHex}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`); Cloudflare Pages does this via `public/_redirects` (`/*  /  200`), which is committed in this repo. The rule targets `/` rather than `/index.html` — the latter currently trips a (confirmed, still-open) false-positive "infinite loop" check in Cloudflare's deploy-time `_redirects` validation ([cloudflare/workers-sdk#10992](https://github.com/cloudflare/workers-sdk/issues/10992)); `index.html` also sets `<base href="/" />` as a belt-and-suspenders companion to that workaround.
 
 ## How the crypto flow works
 
