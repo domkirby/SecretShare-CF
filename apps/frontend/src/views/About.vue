@@ -39,6 +39,14 @@
         way to read.
       </p>
       <p>That also means: if you lose the link (or the password), nobody — including us — can recover it.</p>
+
+      <h2>Open source</h2>
+      <p>
+        SecretShare is open source —
+        <a href="https://github.com/domkirby/SecretShare-CF/" target="_blank" rel="noopener noreferrer"
+          ><i class="pi pi-github"></i> view it on GitHub</a
+        >.
+      </p>
     </div>
   </div>
 </template>

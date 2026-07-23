@@ -161,6 +161,13 @@ body {
   color: light-dark(#33383f, #cdd5df);
 }
 
+.ss-about a {
+  color: light-dark(#1d4ed8, #93c5fd);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .ss-about ol,
 .ss-about ul {
   margin: 0.5rem 0;
