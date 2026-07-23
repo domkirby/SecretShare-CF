@@ -279,5 +279,9 @@ function resetForm() {
         <Button label="Create Another" severity="secondary" text @click="resetForm" />
       </div>
     </template>
+
+    <div class="ss-footer">
+      <router-link to="/about"><i class="pi pi-info-circle"></i> What is SecretShare?</router-link>
+    </div>
   </div>
 </template>

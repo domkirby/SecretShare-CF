@@ -164,5 +164,9 @@ async function copyPlaintext() {
         <Button :label="copied ? 'Copied!' : 'Copy'" icon="pi pi-copy" @click="copyPlaintext" />
       </div>
     </template>
+
+    <div class="ss-footer">
+      <router-link to="/about"><i class="pi pi-info-circle"></i> What is SecretShare?</router-link>
+    </div>
   </div>
 </template>

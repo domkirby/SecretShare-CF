@@ -122,3 +122,61 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9rem;
 }
+
+.ss-footer {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid light-dark(rgba(20, 40, 80, 0.08), rgba(255, 255, 255, 0.08));
+  text-align: center;
+}
+
+.ss-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: light-dark(#55606e, #9fb0c0);
+  text-decoration: none;
+}
+
+.ss-footer a:hover {
+  color: light-dark(#1d4ed8, #93c5fd);
+  text-decoration: underline;
+}
+
+.ss-about h2 {
+  font-size: 1.05rem;
+  margin: 1.5rem 0 0.5rem;
+  color: light-dark(#1d4ed8, #93c5fd);
+}
+
+.ss-about h2:first-child {
+  margin-top: 0;
+}
+
+.ss-about p,
+.ss-about li {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: light-dark(#33383f, #cdd5df);
+}
+
+.ss-about ol,
+.ss-about ul {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.ss-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: light-dark(#1d4ed8, #93c5fd);
+  text-decoration: none;
+  margin-bottom: 1.5rem;
+}
+
+.ss-back-link:hover {
+  text-decoration: underline;
+}
