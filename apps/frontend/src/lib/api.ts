@@ -2,7 +2,7 @@ const API_BASE = import.meta.env.VITE_API_BASE as string;
 
 export interface CreateSecretRequest {
   ciphertext: string;
-  kdf?: { salt: string; iterations: number };
+  kdf?: { salt: string; iterations: number; verifier: string };
   maxViews: number;
   ttlMinutes?: number;
   turnstileToken?: string;
@@ -16,6 +16,7 @@ export interface CreateSecretResponse {
 export interface ProbeSecretResponse {
   exists: true;
   requiresPassword: boolean;
+  kdf?: { salt: string; iterations: number };
   viewsRemaining: number;
   expiresAt: string;
 }
@@ -74,6 +75,16 @@ export function revealSecret(id: string): Promise<RevealSecretResponse> {
   return fetch(`${API_BASE}/api/secrets/${encodeURIComponent(id)}/reveal`, {
     method: "POST",
   }).then(handle<RevealSecretResponse>);
+}
+
+export async function verifyPassword(id: string, verifier: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/secrets/${encodeURIComponent(id)}/verify-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ verifier }),
+  });
+  const { valid } = await handle<{ valid: boolean }>(res);
+  return valid;
 }
 
 export function deleteSecret(id: string): Promise<void> {

@@ -26,6 +26,13 @@ function base64ToBuf(b64: string): Uint8Array {
   return out;
 }
 
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
 export const PBKDF2_ITERATIONS = 350_000;
 
 export async function generateRandomKey(): Promise<CryptoKey> {
@@ -76,6 +83,33 @@ export async function deriveKeyFromPassword(
     false,
     ["encrypt", "decrypt"]
   );
+}
+
+/**
+ * Independent PBKDF2 derivation from the same password/iterations but a
+ * distinct salt (real salt + ":verify" suffix), so the server can check a
+ * password before spending a view — without ever holding anything that
+ * lets it recover encKey.
+ */
+export async function deriveVerifier(
+  password: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<string> {
+  const verifierSalt = concatBytes(salt, new TextEncoder().encode(":verify"));
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: verifierSalt as BufferSource, iterations, hash: "SHA-256" },
+    passwordKey,
+    256
+  );
+  return bufToBase64(new Uint8Array(bits));
 }
 
 /** CSPRNG-based suggestion for password mode; not the only allowed password. */

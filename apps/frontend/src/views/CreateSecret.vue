@@ -14,6 +14,7 @@ import {
   generateSalt,
   saltToBase64,
   deriveKeyFromPassword,
+  deriveVerifier,
   generateSecurePassword,
   PBKDF2_ITERATIONS,
 } from "../lib/crypto";
@@ -78,13 +79,14 @@ async function handleSubmit() {
   try {
     let ciphertext: string;
     let keyHex: string | null = null;
-    let kdf: { salt: string; iterations: number } | undefined;
+    let kdf: { salt: string; iterations: number; verifier: string } | undefined;
 
     if (mode.value === "password") {
       const salt = generateSalt();
       const key = await deriveKeyFromPassword(password.value, salt, PBKDF2_ITERATIONS);
       ({ ciphertext } = await encryptData(secretText.value, key));
-      kdf = { salt: saltToBase64(salt), iterations: PBKDF2_ITERATIONS };
+      const verifier = await deriveVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      kdf = { salt: saltToBase64(salt), iterations: PBKDF2_ITERATIONS, verifier };
     } else {
       const key = await generateRandomKey();
       ({ ciphertext } = await encryptData(secretText.value, key));

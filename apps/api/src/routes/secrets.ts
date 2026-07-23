@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { generateId } from "../lib/id";
 import { verifyTurnstile } from "../lib/turnstile";
+import { timingSafeEqual } from "../lib/timingSafeEqual";
 
 export interface Env {
   DB: D1Database;
@@ -11,11 +12,12 @@ export interface Env {
   DEFAULT_TTL_MINUTES: string;
   MAX_TTL_MINUTES: string;
   MAX_VIEWS_CAP: string;
+  FAILED_ATTEMPTS_CAP: string;
 }
 
 interface CreateSecretBody {
   ciphertext: string;
-  kdf?: { salt: string; iterations: number };
+  kdf?: { salt: string; iterations: number; verifier: string };
   maxViews: number;
   ttlMinutes?: number;
   turnstileToken?: string;
@@ -68,6 +70,7 @@ secrets.post("/", async (c) => {
 
   let kdfSalt: string | null = null;
   let kdfIterations: number | null = null;
+  let kdfVerifier: string | null = null;
   if (body.kdf !== undefined) {
     if (
       typeof body.kdf !== "object" ||
@@ -76,12 +79,15 @@ secrets.post("/", async (c) => {
       body.kdf.salt.length === 0 ||
       typeof body.kdf.iterations !== "number" ||
       !Number.isInteger(body.kdf.iterations) ||
-      body.kdf.iterations < 1
+      body.kdf.iterations < 1 ||
+      typeof body.kdf.verifier !== "string" ||
+      body.kdf.verifier.length === 0
     ) {
       return c.json({ error: "invalid kdf object" }, 400);
     }
     kdfSalt = body.kdf.salt;
     kdfIterations = body.kdf.iterations;
+    kdfVerifier = body.kdf.verifier;
   }
 
   const turnstileOk = await verifyTurnstile(
@@ -97,10 +103,10 @@ secrets.post("/", async (c) => {
   const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
 
   await c.env.DB.prepare(
-    `INSERT INTO secrets (id, ciphertext, kdf_salt, kdf_iterations, max_views, view_count, expires_at)
-     VALUES (?, ?, ?, ?, ?, 0, ?)`
+    `INSERT INTO secrets (id, ciphertext, kdf_salt, kdf_iterations, kdf_verifier, max_views, view_count, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
   )
-    .bind(id, body.ciphertext, kdfSalt, kdfIterations, body.maxViews, expiresAt)
+    .bind(id, body.ciphertext, kdfSalt, kdfIterations, kdfVerifier, body.maxViews, expiresAt)
     .run();
 
   return c.json({ id, expiresAt }, 201);
@@ -109,7 +115,7 @@ secrets.post("/", async (c) => {
 secrets.get("/:id", async (c) => {
   const id = c.req.param("id");
   const row = await c.env.DB.prepare(
-    `SELECT max_views, view_count, expires_at, kdf_salt, burned
+    `SELECT max_views, view_count, expires_at, kdf_salt, kdf_iterations, burned
      FROM secrets WHERE id = ?`
   )
     .bind(id)
@@ -118,6 +124,7 @@ secrets.get("/:id", async (c) => {
       view_count: number;
       expires_at: string;
       kdf_salt: string | null;
+      kdf_iterations: number | null;
       burned: number;
     }>();
 
@@ -125,12 +132,66 @@ secrets.get("/:id", async (c) => {
     return c.json({ exists: false }, 404);
   }
 
+  const requiresPassword = row.kdf_salt !== null;
+
   return c.json({
     exists: true,
-    requiresPassword: row.kdf_salt !== null,
+    requiresPassword,
+    ...(requiresPassword && { kdf: { salt: row.kdf_salt, iterations: row.kdf_iterations } }),
     viewsRemaining: row.max_views - row.view_count,
     expiresAt: row.expires_at,
   });
+});
+
+secrets.post("/:id/verify-password", async (c) => {
+  const id = c.req.param("id");
+  let body: { verifier?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (typeof body.verifier !== "string" || body.verifier.length === 0) {
+    return c.json({ error: "verifier is required" }, 400);
+  }
+
+  const row = await c.env.DB.prepare(
+    `SELECT kdf_verifier, burned, expires_at, failed_attempts
+     FROM secrets WHERE id = ?`
+  )
+    .bind(id)
+    .first<{
+      kdf_verifier: string | null;
+      burned: number;
+      expires_at: string;
+      failed_attempts: number;
+    }>();
+
+  if (
+    !row ||
+    row.burned === 1 ||
+    new Date(row.expires_at).getTime() < Date.now() ||
+    row.kdf_verifier === null
+  ) {
+    return c.json({ error: "not found" }, 404);
+  }
+
+  if (timingSafeEqual(body.verifier, row.kdf_verifier)) {
+    return c.json({ valid: true });
+  }
+
+  const failedAttemptsCap = Number(c.env.FAILED_ATTEMPTS_CAP);
+  const newFailedAttempts = row.failed_attempts + 1;
+  if (newFailedAttempts >= failedAttemptsCap) {
+    await c.env.DB.prepare(`DELETE FROM secrets WHERE id = ?`).bind(id).run();
+  } else {
+    await c.env.DB.prepare(`UPDATE secrets SET failed_attempts = ? WHERE id = ?`)
+      .bind(newFailedAttempts, id)
+      .run();
+  }
+
+  return c.json({ valid: false });
 });
 
 secrets.post("/:id/reveal", async (c) => {

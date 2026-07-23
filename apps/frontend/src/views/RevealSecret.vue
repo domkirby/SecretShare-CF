@@ -6,8 +6,8 @@ import Message from "primevue/message";
 import Skeleton from "primevue/skeleton";
 import Tag from "primevue/tag";
 import Password from "primevue/password";
-import { importKeyHex, decryptData, deriveKeyFromPassword, base64ToSalt } from "../lib/crypto";
-import { probeSecret, revealSecret, deleteSecret, ApiError } from "../lib/api";
+import { importKeyHex, decryptData, deriveKeyFromPassword, deriveVerifier, base64ToSalt } from "../lib/crypto";
+import { probeSecret, revealSecret, verifyPassword, deleteSecret, ApiError } from "../lib/api";
 
 type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
 
@@ -17,7 +17,9 @@ const keyHex = window.location.hash.slice(1);
 
 const state = ref<ViewState>("loading");
 const requiresPassword = ref(false);
+const passwordKdf = ref<{ salt: string; iterations: number } | null>(null);
 const password = ref("");
+const passwordError = ref<string | null>(null);
 const viewsRemaining = ref<number | null>(null);
 const expiresAtDisplay = ref<string | null>(null);
 const plaintext = ref<string | null>(null);
@@ -33,7 +35,9 @@ onMounted(async () => {
       return;
     }
     requiresPassword.value = probe.requiresPassword;
-    if (!requiresPassword.value && !keyHex) {
+    if (requiresPassword.value) {
+      passwordKdf.value = probe.kdf ?? null;
+    } else if (!keyHex) {
       state.value = "error";
       errorMessage.value = "This link is missing its decryption key.";
       return;
@@ -50,7 +54,21 @@ onMounted(async () => {
 async function handleReveal() {
   if (requiresPassword.value && !password.value) return;
   revealing.value = true;
+  passwordError.value = null;
   try {
+    if (requiresPassword.value && passwordKdf.value) {
+      const verifier = await deriveVerifier(
+        password.value,
+        base64ToSalt(passwordKdf.value.salt),
+        passwordKdf.value.iterations
+      );
+      const valid = await verifyPassword(id, verifier);
+      if (!valid) {
+        passwordError.value = "Incorrect password — try again.";
+        return;
+      }
+    }
+
     const { ciphertext, kdf } = await revealSecret(id);
     const key =
       requiresPassword.value && kdf
@@ -63,9 +81,7 @@ async function handleReveal() {
       state.value = "not-found";
     } else {
       state.value = "error";
-      errorMessage.value = requiresPassword.value
-        ? "Failed to decrypt — the password may be wrong. This view has already been consumed, so a new link will be needed to try again."
-        : "Failed to reveal or decrypt this secret. The link may be corrupted or already used.";
+      errorMessage.value = "Failed to reveal or decrypt this secret. The link may be corrupted or already used.";
     }
   } finally {
     revealing.value = false;
@@ -119,8 +135,11 @@ async function copyPlaintext() {
           style="width: 100%"
           :inputStyle="{ width: '100%' }"
         />
+        <Message v-if="passwordError" severity="error" :closable="false" size="small" style="margin-top: 0.5rem">
+          {{ passwordError }}
+        </Message>
         <p style="font-size: 0.85rem; margin-top: 0.4rem">
-          Revealing consumes a view even if the password is wrong, so double-check it before continuing.
+          We'll check your password before this counts as a view — an incorrect password can be retried.
         </p>
       </div>
 

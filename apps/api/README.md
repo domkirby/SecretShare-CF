@@ -72,6 +72,7 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 | `DEFAULT_TTL_MINUTES` | TTL applied when `ttlMinutes` is omitted on create. | `"1440"` (1 day) |
 | `MAX_TTL_MINUTES` | Upper bound for `ttlMinutes`; requests over this get a 400. | `"10080"` (7 days) |
 | `MAX_VIEWS_CAP` | Upper bound for `maxViews`; requests over this get a 400. | `"10"` |
+| `FAILED_ATTEMPTS_CAP` | Max wrong-password guesses (via `POST /:id/verify-password`) before a password-protected secret is burned. Independent of `maxViews` — this budget exists so a typo doesn't cost the creator's configured view(s). | `"5"` |
 
 ### `[[d1_databases]]`
 
@@ -104,7 +105,7 @@ Create a secret.
 // request
 {
   "ciphertext": "ivB64:ctB64",
-  "kdf": { "salt": "b64", "iterations": 350000 }, // optional — omit entirely for random-key mode
+  "kdf": { "salt": "b64", "iterations": 350000, "verifier": "b64" }, // optional — omit entirely for random-key mode
   "maxViews": 1,
   "ttlMinutes": 1440,        // optional, defaults to DEFAULT_TTL_MINUTES
   "turnstileToken": "..."    // required when TURNSTILE_ENABLED="true"; ignored otherwise
@@ -114,18 +115,36 @@ Create a secret.
 { "id": "kQ2f...", "expiresAt": "2026-07-19T18:00:00Z" }
 ```
 
-Validation: `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations` required together if `kdf` is present (400).
+Validation: `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present (400). `kdf.verifier` is an independent PBKDF2 derivation from the same password (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
 
 ### `GET /api/secrets/:id`
 
 Metadata probe — does **not** consume a view.
 
 ```jsonc
-// response 200
+// response 200 (random-key mode)
 { "exists": true, "requiresPassword": false, "viewsRemaining": 1, "expiresAt": "..." }
+// response 200 (password mode) — kdf.salt/iterations are not secret, needed client-side to derive a verifier before calling /verify-password
+{ "exists": true, "requiresPassword": true, "kdf": { "salt": "b64", "iterations": 350000 }, "viewsRemaining": 1, "expiresAt": "..." }
 // response 404 (expired / burned / never existed — indistinguishable by design)
 { "exists": false }
 ```
+
+### `POST /api/secrets/:id/verify-password`
+
+Checks a password-derived verifier **without consuming a view** — this is what lets `RevealSecret.vue` catch a typo before it costs the one real reveal.
+
+```jsonc
+// request
+{ "verifier": "b64" } // deriveVerifier(password, salt, iterations) client-side
+
+// response 200
+{ "valid": true }   // or { "valid": false }
+// response 404 (missing / burned / expired / not a password secret — same uniform 404 as elsewhere)
+{ "error": "not found" }
+```
+
+A mismatch increments a per-secret `failed_attempts` counter; once it reaches `FAILED_ATTEMPTS_CAP`, the row is burned (hard-deleted) the same way `/reveal` burns on `maxViews` exhaustion. This bounds total guesses the same way the rest of the app does — a wrong guess is cheap for the server, but the attacker still has to run a full 350,000-iteration PBKDF2 client-side per guess, same cost as before this endpoint existed. The comparison itself is constant-time (`src/lib/timingSafeEqual.ts`) to avoid a length/content timing side-channel on the verifier string.
 
 ### `POST /api/secrets/:id/reveal`
 
@@ -150,4 +169,4 @@ See `schema.sql`. One table, `secrets`, no `users` table — this is an anonymou
 
 ## Known gaps (planned follow-up passes)
 
-- **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets` and `POST /api/secrets/:id/reveal` in the meantime (see `DEPLOYMENT.md`).
+- **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets`, `POST /api/secrets/:id/reveal`, and especially `POST /api/secrets/:id/verify-password` (its whole purpose is to accept repeated guesses cheaply, so it's the best candidate for a dashboard rate limit rule once that pass happens) in the meantime — see `DEPLOYMENT.md`.
