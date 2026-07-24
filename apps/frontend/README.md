@@ -4,7 +4,7 @@ A Vue 3 + Vite SPA deployed as a Cloudflare Workers static-assets project. This 
 
 This is a standalone npm package, deployed independently of `apps/api` — it only needs to know the API's base URL.
 
-Supports both **random-key mode** and **password mode**, plus an optional Turnstile challenge on creation. Rate-limiting UI is a planned follow-up pass.
+Supports both **random-key mode** and **password mode**, plus an optional Turnstile challenge on both creation and reveal. Rate-limiting UI is a planned follow-up pass.
 
 ## Requirements
 
@@ -44,7 +44,7 @@ Config is a handful of Vite env vars, read at **build time** and exposed as `imp
 | Var | Purpose | Example |
 |---|---|---|
 | `VITE_API_BASE` | Base URL of the `apps/api` Worker — no trailing slash, no `/api` suffix (that's added per-call). | `http://localhost:8787` (dev) / `https://secretshare-api.<you>.workers.dev` or a custom domain (prod) |
-| `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on the create form and blocks submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or a create request the API will reject. | `false` |
+| `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on both the create form and the reveal form, blocking submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or requests the API will reject. | `false` |
 | `VITE_TURNSTILE_SITE_KEY` | The Turnstile **site key** (public, safe to ship in client JS) for your Cloudflare Turnstile widget. Only read when `VITE_TURNSTILE_ENABLED` is `true`. | `0x4AAAAAAA...` |
 
 Copy `.env.example` to `.env.local` for local dev. On Cloudflare, these are set as **build-time environment variables** in the Workers project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the build runs, not read at request time.
@@ -84,7 +84,11 @@ Thin typed wrapper around the API endpoints (`createSecret`, `probeSecret`, `ver
 
 ## Turnstile
 
-`src/components/TurnstileWidget.vue` lazily loads Cloudflare's `turnstile/v0/api.js` script (once per page, even if the component is used more than once) and renders a widget for the given `site-key` prop, emitting `verified`/`expired`/`error` events. `CreateSecret.vue` only mounts it when `VITE_TURNSTILE_ENABLED === "true"`, and disables the submit button until a token has been emitted; the token is sent as `turnstileToken` on create and reset (`widget.reset()`) after any failed submission, since a token is single-use.
+`src/components/TurnstileWidget.vue` lazily loads Cloudflare's `turnstile/v0/api.js` script (once per page, even if the component is used more than once) and renders a widget for the given `site-key` prop, emitting `verified`/`expired`/`error` events. Both `CreateSecret.vue` and `RevealSecret.vue` only mount it when `VITE_TURNSTILE_ENABLED === "true"`, and disable their submit button until a token has been emitted.
+
+`CreateSecret.vue` only ever needs one token per submission (a single API call), so it uses the token directly and resets the widget (`widget.reset()`) after any failed submission, since a token is single-use.
+
+`RevealSecret.vue` is trickier: revealing a password-protected secret makes **two** protected calls back-to-back in the same click handler — `verify-password`, then `reveal` — and a spent token can't be resubmitted for the second call (Cloudflare's `siteverify` marks a token used on first check, so replaying it always fails). It solves this with a small token queue instead of a single ref: `consumeTurnstileToken()` grabs the currently-held token (if the widget has already solved one) and immediately calls `widget.reset()` to start solving a replacement in the background; if no token is ready yet (e.g. a fresh reset is still in flight), it returns a promise that resolves off the next `verified` event instead of reusing anything already spent. Both `verify-password` and `reveal` call `consumeTurnstileToken()` immediately before their request, guaranteeing they never share a token — including across a wrong-password retry, which goes through the same queue on the next attempt.
 
 This is a **UX gate only** — the actual security boundary is the API's own `siteverify` call (see [`apps/api/README.md`](../api/README.md)), which always re-checks the token server-side regardless of what the frontend does.
 

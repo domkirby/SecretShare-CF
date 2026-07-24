@@ -6,6 +6,7 @@ import Message from "primevue/message";
 import Skeleton from "primevue/skeleton";
 import Tag from "primevue/tag";
 import Password from "primevue/password";
+import TurnstileWidget from "../components/TurnstileWidget.vue";
 import { importKeyHex, decryptData, deriveKeyFromPassword, deriveVerifier, base64ToSalt } from "../lib/crypto";
 import { probeSecret, revealSecret, verifyPassword, deleteSecret, ApiError } from "../lib/api";
 
@@ -14,6 +15,44 @@ type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
 const route = useRoute();
 const id = route.params.id as string;
 const keyHex = window.location.hash.slice(1);
+
+const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
+const turnstileWidget = ref<InstanceType<typeof TurnstileWidget> | null>(null);
+
+// Turnstile tokens are single-use, and revealing a password-protected secret needs
+// two protected calls back-to-back (verify-password, then reveal). This queue makes
+// sure each call gets its own fresh token instead of replaying a spent one: consuming
+// a ready token immediately kicks off a reset so the next one starts solving, and if
+// no token is ready yet the caller just awaits the next `verified` event.
+const turnstileToken = ref<string | null>(null);
+const turnstileReady = ref(false);
+let tokenWaiters: ((token: string) => void)[] = [];
+
+function handleTurnstileVerified(token: string) {
+  turnstileReady.value = true;
+  const waiter = tokenWaiters.shift();
+  if (waiter) {
+    waiter(token);
+  } else {
+    turnstileToken.value = token;
+  }
+}
+
+function handleTurnstileReset() {
+  turnstileReady.value = false;
+  turnstileToken.value = null;
+}
+
+function consumeTurnstileToken(): Promise<string> {
+  if (turnstileToken.value) {
+    const token = turnstileToken.value;
+    turnstileToken.value = null;
+    turnstileWidget.value?.reset();
+    return Promise.resolve(token);
+  }
+  return new Promise((resolve) => tokenWaiters.push(resolve));
+}
 
 const state = ref<ViewState>("loading");
 const requiresPassword = ref(false);
@@ -62,14 +101,16 @@ async function handleReveal() {
         base64ToSalt(passwordKdf.value.salt),
         passwordKdf.value.iterations
       );
-      const valid = await verifyPassword(id, verifier);
+      const verifyToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
+      const valid = await verifyPassword(id, verifier, verifyToken);
       if (!valid) {
         passwordError.value = "Incorrect password — try again.";
         return;
       }
     }
 
-    const { ciphertext, kdf } = await revealSecret(id);
+    const revealToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
+    const { ciphertext, kdf } = await revealSecret(id, revealToken);
     const key =
       requiresPassword.value && kdf
         ? await deriveKeyFromPassword(password.value, base64ToSalt(kdf.salt), kdf.iterations)
@@ -143,12 +184,22 @@ async function copyPlaintext() {
         </p>
       </div>
 
+      <div v-if="turnstileEnabled" class="ss-field">
+        <TurnstileWidget
+          ref="turnstileWidget"
+          :site-key="turnstileSiteKey"
+          @verified="handleTurnstileVerified"
+          @expired="handleTurnstileReset"
+          @error="handleTurnstileReset"
+        />
+      </div>
+
       <div class="ss-actions">
         <Button
           label="Reveal Secret"
           icon="pi pi-eye"
           :loading="revealing"
-          :disabled="requiresPassword && !password"
+          :disabled="(requiresPassword && !password) || (turnstileEnabled && !turnstileReady)"
           @click="handleReveal"
         />
         <Button label="Burn Now Without Viewing" severity="danger" outlined icon="pi pi-trash" @click="handleBurn" />

@@ -145,7 +145,7 @@ secrets.get("/:id", async (c) => {
 
 secrets.post("/:id/verify-password", async (c) => {
   const id = c.req.param("id");
-  let body: { verifier?: string };
+  let body: { verifier?: string; turnstileToken?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -154,6 +154,15 @@ secrets.post("/:id/verify-password", async (c) => {
 
   if (typeof body.verifier !== "string" || body.verifier.length === 0) {
     return c.json({ error: "verifier is required" }, 400);
+  }
+
+  const turnstileOk = await verifyTurnstile(
+    c.env,
+    body.turnstileToken,
+    c.req.header("CF-Connecting-IP")
+  );
+  if (!turnstileOk) {
+    return c.json({ error: "Turnstile verification failed" }, 403);
   }
 
   const row = await c.env.DB.prepare(
@@ -196,6 +205,22 @@ secrets.post("/:id/verify-password", async (c) => {
 
 secrets.post("/:id/reveal", async (c) => {
   const id = c.req.param("id");
+
+  let body: { turnstileToken?: string } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // no body sent (e.g. Turnstile disabled) — treated as empty
+  }
+
+  const turnstileOk = await verifyTurnstile(
+    c.env,
+    body.turnstileToken,
+    c.req.header("CF-Connecting-IP")
+  );
+  if (!turnstileOk) {
+    return c.json({ error: "Turnstile verification failed" }, 403);
+  }
 
   const updated = await c.env.DB.prepare(
     `UPDATE secrets

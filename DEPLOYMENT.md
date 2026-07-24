@@ -54,7 +54,7 @@ Also review the other `[vars]` in that file before your first deploy — in part
 
 ### 1.4 (Optional) Turnstile bot protection
 
-Skip this if you're not enabling Turnstile — `TURNSTILE_ENABLED` defaults to `"false"` in `wrangler.toml`, which makes `POST /api/secrets` accept requests with no token at all.
+Skip this if you're not enabling Turnstile — `TURNSTILE_ENABLED` defaults to `"false"` in `wrangler.toml`, which makes `POST /api/secrets`, `POST /:id/verify-password`, and `POST /:id/reveal` all accept requests with no token at all.
 
 To enable it:
 

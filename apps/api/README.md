@@ -67,7 +67,7 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 | Var | Purpose | Current default |
 |---|---|---|
 | `ALLOWED_ORIGIN` | Comma-separated list of origins allowed via CORS. Must include every frontend origin (e.g. your frontend's dev/preview/prod Workers domains). | `http://localhost:5173,http://localhost:8788` |
-| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
+| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`, `POST /:id/verify-password`, and `POST /:id/reveal`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
 | `MAX_SECRET_BYTES` | Max byte length of the `ciphertext` field accepted on create. Requests over this get a 413. | `"65536"` |
 | `DEFAULT_TTL_MINUTES` | TTL applied when `ttlMinutes` is omitted on create. | `"1440"` (1 day) |
 | `MAX_TTL_MINUTES` | Upper bound for `ttlMinutes`; requests over this get a 400. | `"10080"` (7 days) |
@@ -87,11 +87,11 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 
 | Secret | Purpose | Required when |
 |---|---|---|
-| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
+| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create, verify-password, or reveal request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
 
 Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings (see `DEPLOYMENT.md`). For local dev, put it in a gitignored `.dev.vars` file instead (`TURNSTILE_ENABLED=true` / `TURNSTILE_SECRET_KEY=...`) — see [Cloudflare's Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) for dummy site/secret keys that always pass or always fail, useful for exercising this locally without a real Turnstile site.
 
-The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one.
+The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one. Because a Turnstile token is single-use (Cloudflare's `siteverify` marks it spent on first check), `verify-password` and `reveal` each need their **own** token — see [`apps/frontend/README.md`](../frontend/README.md#turnstile) for how `RevealSecret.vue` queues a fresh token per call instead of replaying the one already spent on the previous step.
 
 ## API contract
 
@@ -136,10 +136,15 @@ Checks a password-derived verifier **without consuming a view** — this is what
 
 ```jsonc
 // request
-{ "verifier": "b64" } // deriveVerifier(password, salt, iterations) client-side
+{
+  "verifier": "b64",        // deriveVerifier(password, salt, iterations) client-side
+  "turnstileToken": "..."   // required when TURNSTILE_ENABLED="true"; ignored otherwise
+}
 
 // response 200
 { "valid": true }   // or { "valid": false }
+// response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before the DB lookup, so this never touches failed_attempts)
+{ "error": "Turnstile verification failed" }
 // response 404 (missing / burned / expired / not a password secret — same uniform 404 as elsewhere)
 { "error": "not found" }
 ```
@@ -151,8 +156,13 @@ A mismatch increments a per-secret `failed_attempts` counter; once it reaches `F
 Atomically consumes one view.
 
 ```jsonc
+// request (body is optional when TURNSTILE_ENABLED="false")
+{ "turnstileToken": "..." } // required when TURNSTILE_ENABLED="true"; ignored otherwise
+
 // response 200
 { "ciphertext": "ivB64:ctB64", "kdf": { "salt": "b64", "iterations": 350000 } } // "kdf" omitted entirely in random-key mode
+// response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before the view-consuming update, so a rejected token never burns a view)
+{ "error": "Turnstile verification failed" }
 // response 404
 { "error": "not found" }
 ```

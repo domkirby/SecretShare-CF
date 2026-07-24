@@ -71,17 +71,23 @@ export async function probeSecret(
   return handle<ProbeSecretResponse>(res);
 }
 
-export function revealSecret(id: string): Promise<RevealSecretResponse> {
+export function revealSecret(id: string, turnstileToken?: string): Promise<RevealSecretResponse> {
   return fetch(`${API_BASE}/api/secrets/${encodeURIComponent(id)}/reveal`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ turnstileToken }),
   }).then(handle<RevealSecretResponse>);
 }
 
-export async function verifyPassword(id: string, verifier: string): Promise<boolean> {
+export async function verifyPassword(
+  id: string,
+  verifier: string,
+  turnstileToken?: string
+): Promise<boolean> {
   const res = await fetch(`${API_BASE}/api/secrets/${encodeURIComponent(id)}/verify-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ verifier }),
+    body: JSON.stringify({ verifier, turnstileToken }),
   });
   const { valid } = await handle<{ valid: boolean }>(res);
   return valid;
