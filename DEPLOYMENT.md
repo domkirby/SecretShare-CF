@@ -1,5 +1,17 @@
 # Deployment (Cloudflare Dashboard, Git-Connected)
 
+## Forking this repo
+
+`apps/api/wrangler.toml` and `apps/frontend/wrangler.toml` in this repo hold the *original* deployment's own live config (domain, D1 database ID) — not placeholders. That's a consequence of how Cloudflare's Git-connected Workers Builds work: it reads bindings and `[vars]` straight from whatever `wrangler.toml` is committed on the branch it builds, so these files have to stay committed and correct for the original deployment to keep working on every push.
+
+If you're forking this to run your own copy, **before** connecting your fork to a new Cloudflare project:
+
+1. Copy `apps/api/wrangler.toml.example` over `apps/api/wrangler.toml`, and `apps/frontend/wrangler.toml.example` over `apps/frontend/wrangler.toml`, in your fork.
+2. Fill in the placeholder values as you go through the steps below (your own `database_id`, your own domain(s), etc).
+3. Commit that to your fork before connecting it to Cloudflare — otherwise your first deploy will point at the original's D1 database and domain.
+
+If you later want to pull upstream improvements into your fork, expect `wrangler.toml` to show a merge conflict — that's normal, since it's expected to diverge per-deployment; just keep your own values when resolving it.
+
 This describes a **pull** deployment: you connect this GitHub repo to Cloudflare once, and Cloudflare builds and deploys both apps whenever you push — no local `wrangler deploy` and no CI pipeline of your own required. Each app is connected as its own Cloudflare project, since they deploy independently (see the root [`README.md`](README.md)).
 
 You'll set up two things in the Cloudflare dashboard, both as **Workers** projects (via Cloudflare's Git-connected Workers Builds) — `apps/frontend` is a Workers *static-assets* project (no server-side Worker code, just `[assets]`-served files with SPA fallback), while `apps/api` is a regular code Worker:

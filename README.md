@@ -31,6 +31,9 @@ Each app is a standalone npm package (not an npm workspace) — see each app's o
 
 ## Deploying
 
+> [!IMPORTANT]
+> Forking this to deploy your own copy? See the "Forking this repo" note at the top of [`DEPLOYMENT.md`](DEPLOYMENT.md) first — this repo's `wrangler.toml` files are the maintainer's own live config, not a template (use the `wrangler.toml.example` files instead).
+
 See [`DEPLOYMENT.md`](DEPLOYMENT.md) for step-by-step instructions to deploy both apps from the Cloudflare dashboard (a "pull" deployment — Cloudflare pulls from your GitHub repo on push, no local `wrangler deploy`/CI required).
 
 ## Local development

@@ -1,0 +1,20 @@
+name = "secretshare-api"
+main = "src/index.ts"
+compatibility_date = "2026-07-23"
+
+[vars]
+ALLOWED_ORIGIN = "https://your-frontend-domain.example.com"
+TURNSTILE_ENABLED = "false"
+MAX_SECRET_BYTES = "65536"
+DEFAULT_TTL_MINUTES = "1440"
+MAX_TTL_MINUTES = "10080"
+MAX_VIEWS_CAP = "10"
+FAILED_ATTEMPTS_CAP = "5"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "your-d1-database-name"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID" # run `npm run db:create` and paste the real ID here
+
+[triggers]
+crons = ["*/5 * * * *"]
