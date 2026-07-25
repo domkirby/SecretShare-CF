@@ -10,11 +10,11 @@ import TurnstileWidget from "../components/TurnstileWidget.vue";
 import {
   generateRandomKey,
   encryptData,
-  exportKeyHex,
+  exportKeyBase64Url,
   generateSalt,
   saltToBase64,
-  deriveKeyFromPassword,
-  deriveVerifier,
+  deriveKeyAndVerifier,
+  generateSecretId,
   generateSecurePassword,
   PBKDF2_ITERATIONS,
 } from "../lib/crypto";
@@ -78,22 +78,26 @@ async function handleSubmit() {
   errorMessage.value = null;
   try {
     let ciphertext: string;
-    let keyHex: string | null = null;
+    let fragmentKey: string | null = null;
     let kdf: { salt: string; iterations: number; verifier: string } | undefined;
+
+    // Generated before encryption because the id is the AES-GCM AAD, binding
+    // the ciphertext to its record.
+    const id = generateSecretId();
 
     if (mode.value === "password") {
       const salt = generateSalt();
-      const key = await deriveKeyFromPassword(password.value, salt, PBKDF2_ITERATIONS);
-      ({ ciphertext } = await encryptData(secretText.value, key));
-      const verifier = await deriveVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      const { key, verifier } = await deriveKeyAndVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      ({ ciphertext } = await encryptData(secretText.value, key, id));
       kdf = { salt: saltToBase64(salt), iterations: PBKDF2_ITERATIONS, verifier };
     } else {
       const key = await generateRandomKey();
-      ({ ciphertext } = await encryptData(secretText.value, key));
-      keyHex = await exportKeyHex(key);
+      ({ ciphertext } = await encryptData(secretText.value, key, id));
+      fragmentKey = await exportKeyBase64Url(key);
     }
 
-    const { id, expiresAt } = await createSecret({
+    const { expiresAt } = await createSecret({
+      id,
       ciphertext,
       kdf,
       maxViews: maxViews.value,
@@ -104,8 +108,8 @@ async function handleSubmit() {
     expiresAtDisplay.value = new Date(expiresAt).toLocaleString();
     usedPassword.value = mode.value === "password" ? password.value : null;
     shareUrl.value =
-      keyHex !== null
-        ? `${window.location.origin}/s/${id}#${keyHex}`
+      fragmentKey !== null
+        ? `${window.location.origin}/s/${id}#${fragmentKey}`
         : `${window.location.origin}/s/${id}`;
   } catch (e) {
     errorMessage.value = e instanceof ApiError ? e.message : "Something went wrong. Please try again.";

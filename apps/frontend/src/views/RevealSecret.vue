@@ -7,14 +7,22 @@ import Skeleton from "primevue/skeleton";
 import Tag from "primevue/tag";
 import Password from "primevue/password";
 import TurnstileWidget from "../components/TurnstileWidget.vue";
-import { importKeyHex, decryptData, deriveKeyFromPassword, deriveVerifier, base64ToSalt } from "../lib/crypto";
+import {
+  importKeyBase64Url,
+  isValidKeyBase64Url,
+  decryptData,
+  deriveKeyAndVerifier,
+  base64ToSalt,
+  MIN_PBKDF2_ITERATIONS,
+  MAX_PBKDF2_ITERATIONS,
+} from "../lib/crypto";
 import { probeSecret, revealSecret, verifyPassword, deleteSecret, ApiError } from "../lib/api";
 
 type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
 
 const route = useRoute();
 const id = route.params.id as string;
-const keyHex = window.location.hash.slice(1);
+const fragmentKey = window.location.hash.slice(1);
 
 const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
@@ -75,10 +83,24 @@ onMounted(async () => {
     }
     requiresPassword.value = probe.requiresPassword;
     if (requiresPassword.value) {
-      passwordKdf.value = probe.kdf ?? null;
-    } else if (!keyHex) {
+      const kdf = probe.kdf ?? null;
+      passwordKdf.value = kdf;
+      // The iteration count round-trips through the server; refuse anything
+      // outside sane bounds (too low = weak derivation, too high = DoS).
+      if (
+        !kdf ||
+        !Number.isInteger(kdf.iterations) ||
+        kdf.iterations < MIN_PBKDF2_ITERATIONS ||
+        kdf.iterations > MAX_PBKDF2_ITERATIONS
+      ) {
+        state.value = "error";
+        errorMessage.value = "This secret's key parameters are invalid.";
+        return;
+      }
+    } else if (!isValidKeyBase64Url(fragmentKey)) {
+      // Checked up front so a mangled fragment fails here, before a view is spent.
       state.value = "error";
-      errorMessage.value = "This link is missing its decryption key.";
+      errorMessage.value = "This link is missing or has a corrupted decryption key.";
       return;
     }
     viewsRemaining.value = probe.viewsRemaining;
@@ -95,12 +117,15 @@ async function handleReveal() {
   revealing.value = true;
   passwordError.value = null;
   try {
+    // Per-attempt local on purpose: the password may change between retries.
+    let derivedKey: CryptoKey | null = null;
     if (requiresPassword.value && passwordKdf.value) {
-      const verifier = await deriveVerifier(
+      const { key, verifier } = await deriveKeyAndVerifier(
         password.value,
         base64ToSalt(passwordKdf.value.salt),
         passwordKdf.value.iterations
       );
+      derivedKey = key;
       const verifyToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
       const valid = await verifyPassword(id, verifier, verifyToken);
       if (!valid) {
@@ -110,12 +135,9 @@ async function handleReveal() {
     }
 
     const revealToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
-    const { ciphertext, kdf } = await revealSecret(id, revealToken);
-    const key =
-      requiresPassword.value && kdf
-        ? await deriveKeyFromPassword(password.value, base64ToSalt(kdf.salt), kdf.iterations)
-        : await importKeyHex(keyHex);
-    plaintext.value = await decryptData(ciphertext, key);
+    const { ciphertext } = await revealSecret(id, revealToken);
+    const key = derivedKey ?? (await importKeyBase64Url(fragmentKey));
+    plaintext.value = await decryptData(ciphertext, key, id);
     state.value = "revealed";
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {

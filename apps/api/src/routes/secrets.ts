@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { generateId } from "../lib/id";
 import { verifyTurnstile } from "../lib/turnstile";
 import { timingSafeEqual } from "../lib/timingSafeEqual";
 
@@ -16,12 +15,21 @@ export interface Env {
 }
 
 interface CreateSecretBody {
+  id: string;
   ciphertext: string;
   kdf?: { salt: string; iterations: number; verifier: string };
   maxViews: number;
   ttlMinutes?: number;
   turnstileToken?: string;
 }
+
+// Client-generated: 16 random bytes, base64url without padding. The client
+// binds this id into the ciphertext as AES-GCM AAD, so it must exist before
+// encryption and cannot be assigned server-side.
+const ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
+const MIN_KDF_ITERATIONS = 100_000;
+const MAX_KDF_ITERATIONS = 2_000_000;
 
 const secrets = new Hono<{ Bindings: Env }>();
 
@@ -37,6 +45,10 @@ secrets.post("/", async (c) => {
   const defaultTtl = Number(c.env.DEFAULT_TTL_MINUTES);
   const maxTtl = Number(c.env.MAX_TTL_MINUTES);
   const maxViewsCap = Number(c.env.MAX_VIEWS_CAP);
+
+  if (typeof body.id !== "string" || !ID_PATTERN.test(body.id)) {
+    return c.json({ error: "id must be 22 base64url characters" }, 400);
+  }
 
   if (typeof body.ciphertext !== "string" || body.ciphertext.length === 0) {
     return c.json({ error: "ciphertext is required" }, 400);
@@ -79,7 +91,8 @@ secrets.post("/", async (c) => {
       body.kdf.salt.length === 0 ||
       typeof body.kdf.iterations !== "number" ||
       !Number.isInteger(body.kdf.iterations) ||
-      body.kdf.iterations < 1 ||
+      body.kdf.iterations < MIN_KDF_ITERATIONS ||
+      body.kdf.iterations > MAX_KDF_ITERATIONS ||
       typeof body.kdf.verifier !== "string" ||
       body.kdf.verifier.length === 0
     ) {
@@ -99,15 +112,22 @@ secrets.post("/", async (c) => {
     return c.json({ error: "Turnstile verification failed" }, 403);
   }
 
-  const id = generateId();
+  const id = body.id;
   const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
 
-  await c.env.DB.prepare(
-    `INSERT INTO secrets (id, ciphertext, kdf_salt, kdf_iterations, kdf_verifier, max_views, view_count, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
-  )
-    .bind(id, body.ciphertext, kdfSalt, kdfIterations, kdfVerifier, body.maxViews, expiresAt)
-    .run();
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO secrets (id, ciphertext, kdf_salt, kdf_iterations, kdf_verifier, max_views, view_count, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
+    )
+      .bind(id, body.ciphertext, kdfSalt, kdfIterations, kdfVerifier, body.maxViews, expiresAt)
+      .run();
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("UNIQUE constraint failed")) {
+      return c.json({ error: "id already exists" }, 409);
+    }
+    throw e;
+  }
 
   return c.json({ id, expiresAt }, 201);
 });
@@ -229,13 +249,11 @@ secrets.post("/:id/reveal", async (c) => {
        AND view_count < max_views
        AND burned = 0
        AND expires_at >= datetime('now')
-     RETURNING ciphertext, kdf_salt, kdf_iterations, view_count, max_views`
+     RETURNING ciphertext, view_count, max_views`
   )
     .bind(id)
     .first<{
       ciphertext: string;
-      kdf_salt: string | null;
-      kdf_iterations: number | null;
       view_count: number;
       max_views: number;
     }>();
@@ -244,20 +262,11 @@ secrets.post("/:id/reveal", async (c) => {
     return c.json({ error: "not found" }, 404);
   }
 
-  const responseBody: {
-    ciphertext: string;
-    kdf?: { salt: string; iterations: number };
-  } = { ciphertext: updated.ciphertext };
-
-  if (updated.kdf_salt !== null && updated.kdf_iterations !== null) {
-    responseBody.kdf = { salt: updated.kdf_salt, iterations: updated.kdf_iterations };
-  }
-
   if (updated.view_count >= updated.max_views) {
     await c.env.DB.prepare(`DELETE FROM secrets WHERE id = ?`).bind(id).run();
   }
 
-  return c.json(responseBody, 200);
+  return c.json({ ciphertext: updated.ciphertext }, 200);
 });
 
 secrets.delete("/:id", async (c) => {
