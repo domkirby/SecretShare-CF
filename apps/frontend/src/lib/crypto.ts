@@ -30,6 +30,8 @@ export const MIN_PBKDF2_ITERATIONS = 100_000;
 export const MAX_PBKDF2_ITERATIONS = 2_000_000;
 
 const ENVELOPE_VERSION = "v1";
+const HKDF_INFO_ENC = "secretshare:v1:enc";
+const HKDF_INFO_VERIFY = "secretshare:v1:verify";
 // 32 key bytes as unpadded base64url — always exactly 43 chars.
 const KEY_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -78,10 +80,14 @@ export function generateSecretId(): string {
 }
 
 /**
- * Single PBKDF2 run producing 512 bits, split into the AES key (first 256)
- * and the server-checkable verifier (last 256). Domain separation comes from
- * the split itself, so the verifier never lets the server recover the key —
- * and the user pays one derivation where an attacker also pays one per guess.
+ * One PBKDF2-SHA256 block (256 bits — asking for more would cost the full
+ * iteration count per extra block, while an attacker cracking the verifier
+ * only ever needs one) as a master secret, then HKDF-Expand — two HMACs,
+ * free next to the PBKDF2 — into the AES key and the server-checkable
+ * verifier under distinct info labels. The client pays exactly what an
+ * attacker pays per guess, and the verifier can't be turned back into the
+ * key. Empty HKDF salt is fine: the master is already uniform, so this is
+ * expand-only usage per RFC 5869.
  */
 export async function deriveKeyAndVerifier(
   password: string,
@@ -95,19 +101,38 @@ export async function deriveKeyAndVerifier(
     false,
     ["deriveBits"]
   );
-  const bits = await crypto.subtle.deriveBits(
+  const master = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
     passwordKey,
-    512
+    256
   );
-  const key = await crypto.subtle.importKey(
-    "raw",
-    bits.slice(0, 32),
-    "AES-GCM",
+  const hkdfKey = await crypto.subtle.importKey("raw", master, "HKDF", false, [
+    "deriveKey",
+    "deriveBits",
+  ]);
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(HKDF_INFO_ENC),
+    },
+    hkdfKey,
+    { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"]
   );
-  return { key, verifier: bufToBase64(new Uint8Array(bits.slice(32))) };
+  const verifierBits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(HKDF_INFO_VERIFY),
+    },
+    hkdfKey,
+    256
+  );
+  return { key, verifier: bufToBase64(new Uint8Array(verifierBits)) };
 }
 
 /** CSPRNG-based suggestion for password mode; not the only allowed password. */

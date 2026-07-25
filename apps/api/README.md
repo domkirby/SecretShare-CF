@@ -116,7 +116,7 @@ Create a secret.
 { "id": "kQ2f...", "expiresAt": "2026-07-19T18:00:00Z" }
 ```
 
-Validation: `id` must match `^[A-Za-z0-9_-]{22}$` (400; 409 if a secret with that id already exists — with 128-bit random ids a genuine collision is negligible, so a 409 in practice means a replayed request). The id is generated client-side *before* encryption because it doubles as the AES-GCM additional authenticated data, cryptographically binding the ciphertext to its record. `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present, with `iterations` in 100,000–2,000,000 (400). `kdf.verifier` is the last 256 bits of the client's single PBKDF2 `deriveBits(512)` output — the first 256 bits are the encryption key, which never leaves the browser (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
+Validation: `id` must match `^[A-Za-z0-9_-]{22}$` (400; 409 if a secret with that id already exists — with 128-bit random ids a genuine collision is negligible, so a 409 in practice means a replayed request). The id is generated client-side *before* encryption because it doubles as the AES-GCM additional authenticated data, cryptographically binding the ciphertext to its record. `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present, with `iterations` in 100,000–2,000,000 (400). `kdf.verifier` is an HKDF-SHA256 expansion (info label `secretshare:v1:verify`) of the client's single-block PBKDF2 master secret — the encryption key is expanded from the same master under a different label and never leaves the browser (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
 
 ### `GET /api/secrets/:id`
 
@@ -138,7 +138,7 @@ Checks a password-derived verifier **without consuming a view** — this is what
 ```jsonc
 // request
 {
-  "verifier": "b64",        // last 256 bits of deriveKeyAndVerifier(password, salt, iterations) client-side
+  "verifier": "b64",        // verifier half of deriveKeyAndVerifier(password, salt, iterations) client-side
   "turnstileToken": "..."   // required when TURNSTILE_ENABLED="true"; ignored otherwise
 }
 
