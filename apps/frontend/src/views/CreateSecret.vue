@@ -13,8 +13,8 @@ import {
   exportKeyHex,
   generateSalt,
   saltToBase64,
-  deriveKeyFromPassword,
-  deriveVerifier,
+  deriveKeyAndVerifier,
+  generateSecretId,
   generateSecurePassword,
   PBKDF2_ITERATIONS,
 } from "../lib/crypto";
@@ -81,19 +81,23 @@ async function handleSubmit() {
     let keyHex: string | null = null;
     let kdf: { salt: string; iterations: number; verifier: string } | undefined;
 
+    // Generated before encryption because the id is the AES-GCM AAD, binding
+    // the ciphertext to its record.
+    const id = generateSecretId();
+
     if (mode.value === "password") {
       const salt = generateSalt();
-      const key = await deriveKeyFromPassword(password.value, salt, PBKDF2_ITERATIONS);
-      ({ ciphertext } = await encryptData(secretText.value, key));
-      const verifier = await deriveVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      const { key, verifier } = await deriveKeyAndVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      ({ ciphertext } = await encryptData(secretText.value, key, id));
       kdf = { salt: saltToBase64(salt), iterations: PBKDF2_ITERATIONS, verifier };
     } else {
       const key = await generateRandomKey();
-      ({ ciphertext } = await encryptData(secretText.value, key));
+      ({ ciphertext } = await encryptData(secretText.value, key, id));
       keyHex = await exportKeyHex(key);
     }
 
-    const { id, expiresAt } = await createSecret({
+    const { expiresAt } = await createSecret({
+      id,
       ciphertext,
       kdf,
       maxViews: maxViews.value,

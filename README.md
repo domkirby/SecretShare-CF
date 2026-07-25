@@ -26,8 +26,8 @@ Each app is a standalone npm package (not an npm workspace) — see each app's o
 ## Crypto model (short version)
 
 - **Random-key mode** (default): a random AES-256-GCM key is generated in the browser, used to encrypt the secret, then hex-encoded and appended to the share link as a URL fragment (`https://.../s/{id}#{keyHex}`). The fragment never leaves the browser — it's not sent in HTTP requests and isn't logged by servers or proxies.
-- **Password mode**: a PBKDF2-HMAC-SHA-256 (350,000 iterations) key derived from a password the recipient already knows out-of-band. The salt and iteration count are not secret and are stored server-side; the password itself is never transmitted. A second, independent PBKDF2 output (the "verifier," derived from the same password with a different salt) lets the server confirm a password is correct *before* a view is consumed — so a typo doesn't burn the secret's one-time view — while remaining impossible to turn back into the actual encryption key.
-- The server only ever stores/serves an opaque `ivBase64:ciphertextBase64` envelope — it cannot decrypt it under either mode.
+- **Password mode**: a PBKDF2-HMAC-SHA-256 (600,000 iterations) derivation from a password the recipient already knows out-of-band. A single 512-bit derivation is split in two: the first 256 bits become the AES-256-GCM key (never transmitted), the last 256 bits become the "verifier" the server stores. The verifier lets the server confirm a password is correct *before* a view is consumed — so a typo doesn't burn the secret's one-time view — while remaining impossible to turn back into the encryption key. The salt and iteration count are not secret and are stored server-side; the client rejects server-supplied iteration counts outside 100,000–2,000,000.
+- The server only ever stores/serves an opaque `v1:ivBase64:ciphertextBase64` envelope — it cannot decrypt it under either mode. The secret's ID is generated in the browser *before* encryption and bound into the ciphertext as AES-GCM additional authenticated data (AAD), so the server can't swap ciphertexts between records without decryption failing.
 
 ## Deploying
 

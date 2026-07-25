@@ -1,6 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE as string;
 
 export interface CreateSecretRequest {
+  id: string;
   ciphertext: string;
   kdf?: { salt: string; iterations: number; verifier: string };
   maxViews: number;
@@ -27,7 +28,6 @@ export interface ProbeSecretNotFound {
 
 export interface RevealSecretResponse {
   ciphertext: string;
-  kdf?: { salt: string; iterations: number };
 }
 
 export class ApiError extends Error {

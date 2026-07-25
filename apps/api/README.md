@@ -1,6 +1,6 @@
 # SecretShare API (`apps/api`)
 
-A Hono (TypeScript) API running on Cloudflare Workers, backed by D1. Implements create/probe/reveal/delete for zero-knowledge secret sharing. The server only ever stores an opaque ciphertext envelope (`ivBase64:ciphertextBase64`) — it never sees plaintext, and in random-key mode it never sees the encryption key either.
+A Hono (TypeScript) API running on Cloudflare Workers, backed by D1. Implements create/probe/reveal/delete for zero-knowledge secret sharing. The server only ever stores an opaque ciphertext envelope (`v1:ivBase64:ciphertextBase64`) — it never sees plaintext, and in random-key mode it never sees the encryption key either.
 
 This is a standalone npm package, deployed independently of `apps/frontend`.
 
@@ -104,8 +104,9 @@ Create a secret.
 ```jsonc
 // request
 {
-  "ciphertext": "ivB64:ctB64",
-  "kdf": { "salt": "b64", "iterations": 350000, "verifier": "b64" }, // optional — omit entirely for random-key mode
+  "id": "kQ2f...",           // client-generated, 22 base64url chars (128 bits); bound into the ciphertext as AES-GCM AAD
+  "ciphertext": "v1:ivB64:ctB64",
+  "kdf": { "salt": "b64", "iterations": 600000, "verifier": "b64" }, // optional — omit entirely for random-key mode
   "maxViews": 1,
   "ttlMinutes": 1440,        // optional, defaults to DEFAULT_TTL_MINUTES
   "turnstileToken": "..."    // required when TURNSTILE_ENABLED="true"; ignored otherwise
@@ -115,7 +116,7 @@ Create a secret.
 { "id": "kQ2f...", "expiresAt": "2026-07-19T18:00:00Z" }
 ```
 
-Validation: `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present (400). `kdf.verifier` is an independent PBKDF2 derivation from the same password (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
+Validation: `id` must match `^[A-Za-z0-9_-]{22}$` (400; 409 if a secret with that id already exists — with 128-bit random ids a genuine collision is negligible, so a 409 in practice means a replayed request). The id is generated client-side *before* encryption because it doubles as the AES-GCM additional authenticated data, cryptographically binding the ciphertext to its record. `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present, with `iterations` in 100,000–2,000,000 (400). `kdf.verifier` is the last 256 bits of the client's single PBKDF2 `deriveBits(512)` output — the first 256 bits are the encryption key, which never leaves the browser (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
 
 ### `GET /api/secrets/:id`
 
@@ -125,7 +126,7 @@ Metadata probe — does **not** consume a view.
 // response 200 (random-key mode)
 { "exists": true, "requiresPassword": false, "viewsRemaining": 1, "expiresAt": "..." }
 // response 200 (password mode) — kdf.salt/iterations are not secret, needed client-side to derive a verifier before calling /verify-password
-{ "exists": true, "requiresPassword": true, "kdf": { "salt": "b64", "iterations": 350000 }, "viewsRemaining": 1, "expiresAt": "..." }
+{ "exists": true, "requiresPassword": true, "kdf": { "salt": "b64", "iterations": 600000 }, "viewsRemaining": 1, "expiresAt": "..." }
 // response 404 (expired / burned / never existed — indistinguishable by design)
 { "exists": false }
 ```
@@ -137,7 +138,7 @@ Checks a password-derived verifier **without consuming a view** — this is what
 ```jsonc
 // request
 {
-  "verifier": "b64",        // deriveVerifier(password, salt, iterations) client-side
+  "verifier": "b64",        // last 256 bits of deriveKeyAndVerifier(password, salt, iterations) client-side
   "turnstileToken": "..."   // required when TURNSTILE_ENABLED="true"; ignored otherwise
 }
 
@@ -149,7 +150,7 @@ Checks a password-derived verifier **without consuming a view** — this is what
 { "error": "not found" }
 ```
 
-A mismatch increments a per-secret `failed_attempts` counter; once it reaches `FAILED_ATTEMPTS_CAP`, the row is burned (hard-deleted) the same way `/reveal` burns on `maxViews` exhaustion. This bounds total guesses the same way the rest of the app does — a wrong guess is cheap for the server, but the attacker still has to run a full 350,000-iteration PBKDF2 client-side per guess, same cost as before this endpoint existed. The comparison itself is constant-time (`src/lib/timingSafeEqual.ts`) to avoid a length/content timing side-channel on the verifier string.
+A mismatch increments a per-secret `failed_attempts` counter; once it reaches `FAILED_ATTEMPTS_CAP`, the row is burned (hard-deleted) the same way `/reveal` burns on `maxViews` exhaustion. This bounds total guesses the same way the rest of the app does — a wrong guess is cheap for the server, but the attacker still has to run a full 600,000-iteration PBKDF2 client-side per guess, same cost as before this endpoint existed. The comparison itself is constant-time (`src/lib/timingSafeEqual.ts`) to avoid a length/content timing side-channel on the verifier string.
 
 ### `POST /api/secrets/:id/reveal`
 
@@ -159,8 +160,8 @@ Atomically consumes one view.
 // request (body is optional when TURNSTILE_ENABLED="false")
 { "turnstileToken": "..." } // required when TURNSTILE_ENABLED="true"; ignored otherwise
 
-// response 200
-{ "ciphertext": "ivB64:ctB64", "kdf": { "salt": "b64", "iterations": 350000 } } // "kdf" omitted entirely in random-key mode
+// response 200 — kdf is not returned here: the client already derived the key from the probe response's salt/iterations before verify-password
+{ "ciphertext": "v1:ivB64:ctB64" }
 // response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before the view-consuming update, so a rejected token never burns a view)
 { "error": "Turnstile verification failed" }
 // response 404
