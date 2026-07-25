@@ -10,7 +10,7 @@ import TurnstileWidget from "../components/TurnstileWidget.vue";
 import {
   generateRandomKey,
   encryptData,
-  exportKeyHex,
+  exportKeyBase64Url,
   generateSalt,
   saltToBase64,
   deriveKeyAndVerifier,
@@ -78,7 +78,7 @@ async function handleSubmit() {
   errorMessage.value = null;
   try {
     let ciphertext: string;
-    let keyHex: string | null = null;
+    let fragmentKey: string | null = null;
     let kdf: { salt: string; iterations: number; verifier: string } | undefined;
 
     // Generated before encryption because the id is the AES-GCM AAD, binding
@@ -93,7 +93,7 @@ async function handleSubmit() {
     } else {
       const key = await generateRandomKey();
       ({ ciphertext } = await encryptData(secretText.value, key, id));
-      keyHex = await exportKeyHex(key);
+      fragmentKey = await exportKeyBase64Url(key);
     }
 
     const { expiresAt } = await createSecret({
@@ -108,8 +108,8 @@ async function handleSubmit() {
     expiresAtDisplay.value = new Date(expiresAt).toLocaleString();
     usedPassword.value = mode.value === "password" ? password.value : null;
     shareUrl.value =
-      keyHex !== null
-        ? `${window.location.origin}/s/${id}#${keyHex}`
+      fragmentKey !== null
+        ? `${window.location.origin}/s/${id}#${fragmentKey}`
         : `${window.location.origin}/s/${id}`;
   } catch (e) {
     errorMessage.value = e instanceof ApiError ? e.message : "Something went wrong. Please try again.";

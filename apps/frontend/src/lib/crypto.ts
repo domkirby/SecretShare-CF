@@ -1,18 +1,3 @@
-function bufToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-function hexToBuf(hex: string): Uint8Array {
-  if (hex.length === 0 || hex.length % 2 !== 0) {
-    throw new Error("Invalid key hex");
-  }
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
 function bufToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -26,6 +11,15 @@ function base64ToBuf(b64: string): Uint8Array {
   return out;
 }
 
+function bufToBase64Url(bytes: Uint8Array): string {
+  return bufToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBuf(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  return base64ToBuf(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
+}
+
 export const PBKDF2_ITERATIONS = 600_000;
 /**
  * Accepted range for server-supplied iteration counts. The value round-trips
@@ -36,7 +30,8 @@ export const MIN_PBKDF2_ITERATIONS = 100_000;
 export const MAX_PBKDF2_ITERATIONS = 2_000_000;
 
 const ENVELOPE_VERSION = "v1";
-const KEY_HEX_PATTERN = /^[0-9a-f]{64}$/i;
+// 32 key bytes as unpadded base64url — always exactly 43 chars.
+const KEY_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 export async function generateRandomKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
@@ -45,20 +40,23 @@ export async function generateRandomKey(): Promise<CryptoKey> {
   ]);
 }
 
-export async function exportKeyHex(key: CryptoKey): Promise<string> {
+export async function exportKeyBase64Url(key: CryptoKey): Promise<string> {
   const raw = await crypto.subtle.exportKey("raw", key);
-  return bufToHex(new Uint8Array(raw));
+  return bufToBase64Url(new Uint8Array(raw));
 }
 
-export function isValidKeyHex(hex: string): boolean {
-  return KEY_HEX_PATTERN.test(hex);
+export function isValidKeyBase64Url(s: string): boolean {
+  return KEY_BASE64URL_PATTERN.test(s);
 }
 
-export async function importKeyHex(hex: string): Promise<CryptoKey> {
-  if (!isValidKeyHex(hex)) {
-    throw new Error("Invalid key hex");
+export async function importKeyBase64Url(s: string): Promise<CryptoKey> {
+  if (!isValidKeyBase64Url(s)) {
+    throw new Error("Invalid key");
   }
-  const raw = hexToBuf(hex);
+  const raw = base64UrlToBuf(s);
+  if (raw.length !== 32) {
+    throw new Error("Invalid key");
+  }
   return crypto.subtle.importKey("raw", raw as BufferSource, "AES-GCM", false, ["decrypt"]);
 }
 
@@ -76,8 +74,7 @@ export function base64ToSalt(b64: string): Uint8Array {
 
 /** Client-generated secret id: 16 random bytes as base64url (22 chars, no padding). */
 export function generateSecretId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return bufToBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return bufToBase64Url(crypto.getRandomValues(new Uint8Array(16)));
 }
 
 /**

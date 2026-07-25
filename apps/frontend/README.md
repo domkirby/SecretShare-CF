@@ -56,7 +56,7 @@ Copy `.env.example` to `.env.local` for local dev. On Cloudflare, these are set 
 | `/` | `CreateSecret.vue` | Compose a secret, pick max views / expiry, encrypt client-side, submit, get a share link |
 | `/s/:id` | `RevealSecret.vue` | Probe a secret's status, then explicitly reveal + decrypt it client-side |
 
-Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{keyHex}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`), configured via `wrangler.toml`'s `[assets]` block:
+Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{key}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`), configured via `wrangler.toml`'s `[assets]` block:
 ```toml
 [assets]
 directory = "./dist"
@@ -73,8 +73,8 @@ not_found_handling = "single-page-application"
 - The envelope sent to (and stored verbatim by) the API is `v1:ivBase64:ciphertextBase64` — the `v1` version tag gives future format changes (e.g. a different KDF or AEAD) a migration path. `decryptData()` rejects anything that isn't exactly three `:`-separated parts with a `v1` tag and a 12-byte IV.
 
 **Random-key mode**
-- **Create**: generate a random 256-bit key → encrypt the secret text with a fresh random 12-byte IV (id as AAD) → build the `v1:` envelope → export the key as 64 hex characters → append to the share URL as a fragment: `https://<host>/s/{id}#{keyHex}`.
-- **Reveal**: read the id from the route, read the key hex from `window.location.hash` (deliberately not via vue-router; validated as exactly 64 hex chars up front, so a mangled link fails before a view is spent), probe the secret (does not consume a view), then on explicit user action call reveal (consumes a view) and decrypt the returned envelope with the imported key and the id as AAD.
+- **Create**: generate a random 256-bit key → encrypt the secret text with a fresh random 12-byte IV (id as AAD) → build the `v1:` envelope → export the key as 43 base64url characters → append to the share URL as a fragment: `https://<host>/s/{id}#{key}`.
+- **Reveal**: read the id from the route, read the key from `window.location.hash` (deliberately not via vue-router; validated as exactly 43 base64url chars decoding to 32 bytes up front, so a mangled link fails before a view is spent), probe the secret (does not consume a view), then on explicit user action call reveal (consumes a view) and decrypt the returned envelope with the imported key and the id as AAD.
 - The key never appears in any HTTP request body, query string, or path — only in the fragment, which browsers never transmit.
 
 **Password mode**

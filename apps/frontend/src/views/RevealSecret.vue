@@ -8,8 +8,8 @@ import Tag from "primevue/tag";
 import Password from "primevue/password";
 import TurnstileWidget from "../components/TurnstileWidget.vue";
 import {
-  importKeyHex,
-  isValidKeyHex,
+  importKeyBase64Url,
+  isValidKeyBase64Url,
   decryptData,
   deriveKeyAndVerifier,
   base64ToSalt,
@@ -22,7 +22,7 @@ type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
 
 const route = useRoute();
 const id = route.params.id as string;
-const keyHex = window.location.hash.slice(1);
+const fragmentKey = window.location.hash.slice(1);
 
 const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
@@ -97,7 +97,7 @@ onMounted(async () => {
         errorMessage.value = "This secret's key parameters are invalid.";
         return;
       }
-    } else if (!isValidKeyHex(keyHex)) {
+    } else if (!isValidKeyBase64Url(fragmentKey)) {
       // Checked up front so a mangled fragment fails here, before a view is spent.
       state.value = "error";
       errorMessage.value = "This link is missing or has a corrupted decryption key.";
@@ -136,7 +136,7 @@ async function handleReveal() {
 
     const revealToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
     const { ciphertext } = await revealSecret(id, revealToken);
-    const key = derivedKey ?? (await importKeyHex(keyHex));
+    const key = derivedKey ?? (await importKeyBase64Url(fragmentKey));
     plaintext.value = await decryptData(ciphertext, key, id);
     state.value = "revealed";
   } catch (e) {
