@@ -67,12 +67,12 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 | Var | Purpose | Current default |
 |---|---|---|
 | `ALLOWED_ORIGIN` | Comma-separated list of origins allowed via CORS. Must include every frontend origin (e.g. your frontend's dev/preview/prod Workers domains). | `http://localhost:5173,http://localhost:8788` |
-| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets`, `POST /:id/verify-password`, and `POST /:id/reveal`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
+| `TURNSTILE_ENABLED` | `"true"`/`"false"`. Gates Turnstile verification on `POST /api/secrets` and `POST /:id/reveal`. When `"false"`, `verifyTurnstile()` short-circuits to always pass — safe for local dev without a Turnstile site configured. | `"false"` |
 | `MAX_SECRET_BYTES` | Max byte length of the `ciphertext` field accepted on create. Requests over this get a 413. | `"65536"` |
 | `DEFAULT_TTL_MINUTES` | TTL applied when `ttlMinutes` is omitted on create. | `"1440"` (1 day) |
 | `MAX_TTL_MINUTES` | Upper bound for `ttlMinutes`; requests over this get a 400. | `"10080"` (7 days) |
 | `MAX_VIEWS_CAP` | Upper bound for `maxViews`; requests over this get a 400. | `"10"` |
-| `FAILED_ATTEMPTS_CAP` | Max wrong-password guesses (via `POST /:id/verify-password`) before a password-protected secret is burned. Independent of `maxViews` — this budget exists so a typo doesn't cost the creator's configured view(s). | `"5"` |
+| `FAILED_ATTEMPTS_CAP` | Max wrong-password guesses (via `POST /:id/reveal`) before a password-protected secret is burned. Independent of `maxViews` — a wrong guess never consumes a view, so this budget exists purely to bound total guesses. | `"5"` |
 
 ### `[[d1_databases]]`
 
@@ -87,11 +87,11 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 
 | Secret | Purpose | Required when |
 |---|---|---|
-| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create, verify-password, or reveal request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
+| `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create or reveal request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
 
 Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings (see `DEPLOYMENT.md`). For local dev, put it in a gitignored `.dev.vars` file instead (`TURNSTILE_ENABLED=true` / `TURNSTILE_SECRET_KEY=...`) — see [Cloudflare's Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) for dummy site/secret keys that always pass or always fail, useful for exercising this locally without a real Turnstile site.
 
-The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one. Because a Turnstile token is single-use (Cloudflare's `siteverify` marks it spent on first check), `verify-password` and `reveal` each need their **own** token — see [`apps/frontend/README.md`](../frontend/README.md#turnstile) for how `RevealSecret.vue` queues a fresh token per call instead of replaying the one already spent on the previous step.
+The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one. Revealing a password-protected secret is a single `POST /:id/reveal` call (password check and view consumption happen together), so it only ever needs one token per attempt — no token queuing/replay concerns like a multi-call flow would have.
 
 ## API contract
 
@@ -116,7 +116,9 @@ Create a secret.
 { "id": "kQ2f...", "expiresAt": "2026-07-19T18:00:00Z" }
 ```
 
-Validation: `id` must match `^[A-Za-z0-9_-]{22}$` (400; 409 if a secret with that id already exists — with 128-bit random ids a genuine collision is negligible, so a 409 in practice means a replayed request). The id is generated client-side *before* encryption because it doubles as the AES-GCM additional authenticated data, cryptographically binding the ciphertext to its record. `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present, with `iterations` in 100,000–2,000,000 (400). `kdf.verifier` is an HKDF-SHA256 expansion (info label `secretshare:v1:verify`) of the client's single-block PBKDF2 master secret — the encryption key is expanded from the same master under a different label and never leaves the browser (see [`apps/frontend/README.md`](../frontend/README.md)) — it lets `/verify-password` check a password without ever touching the actual encryption key.
+Validation: `id` must match `^[A-Za-z0-9_-]{22}$` (400; 409 if a secret with that id already exists — with 128-bit random ids a genuine collision is negligible, so a 409 in practice means a replayed request). The id is generated client-side *before* encryption because it doubles as the AES-GCM additional authenticated data, cryptographically binding the ciphertext to its record. `ciphertext` non-empty and ≤ `MAX_SECRET_BYTES` (413 if over), `maxViews` integer 1–`MAX_VIEWS_CAP` (400), `ttlMinutes` integer 1–`MAX_TTL_MINUTES` if provided (400), `kdf.salt`/`kdf.iterations`/`kdf.verifier` required together if `kdf` is present, with `iterations` in 100,000–2,000,000 (400).
+
+`kdf.verifier` in the request is an HKDF-SHA256 expansion (info label `secretshare:v1:verify`) of the client's single-block PBKDF2 master secret — the encryption key is expanded from the same master under a different label and never leaves the browser (see [`apps/frontend/README.md`](../frontend/README.md)). The server does **not** store that value as-is: it computes `HMAC-SHA256(key = salt, message = verifier)` (`src/lib/verifierHash.ts`) and persists the HMAC output in `kdf_verifier` instead. The verifier is already high-entropy HKDF output, so this isn't password-strengthening — it just means a raw DB read doesn't hand over a value an attacker could replay as-is against `/reveal`; forging a match still requires knowing the actual verifier, not just its hash.
 
 ### `GET /api/secrets/:id`
 
@@ -125,50 +127,38 @@ Metadata probe — does **not** consume a view.
 ```jsonc
 // response 200 (random-key mode)
 { "exists": true, "requiresPassword": false, "viewsRemaining": 1, "expiresAt": "..." }
-// response 200 (password mode) — kdf.salt/iterations are not secret, needed client-side to derive a verifier before calling /verify-password
+// response 200 (password mode) — kdf.salt/iterations are not secret, needed client-side to derive a verifier before calling /reveal
 { "exists": true, "requiresPassword": true, "kdf": { "salt": "b64", "iterations": 600000 }, "viewsRemaining": 1, "expiresAt": "..." }
 // response 404 (expired / burned / never existed — indistinguishable by design)
 { "exists": false }
 ```
 
-### `POST /api/secrets/:id/verify-password`
-
-Checks a password-derived verifier **without consuming a view** — this is what lets `RevealSecret.vue` catch a typo before it costs the one real reveal.
-
-```jsonc
-// request
-{
-  "verifier": "b64",        // verifier half of deriveKeyAndVerifier(password, salt, iterations) client-side
-  "turnstileToken": "..."   // required when TURNSTILE_ENABLED="true"; ignored otherwise
-}
-
-// response 200
-{ "valid": true }   // or { "valid": false }
-// response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before the DB lookup, so this never touches failed_attempts)
-{ "error": "Turnstile verification failed" }
-// response 404 (missing / burned / expired / not a password secret — same uniform 404 as elsewhere)
-{ "error": "not found" }
-```
-
-A mismatch increments a per-secret `failed_attempts` counter; once it reaches `FAILED_ATTEMPTS_CAP`, the row is burned (hard-deleted) the same way `/reveal` burns on `maxViews` exhaustion. This bounds total guesses the same way the rest of the app does — a wrong guess is cheap for the server, but the attacker still has to run a full 600,000-iteration PBKDF2 client-side per guess, same cost as before this endpoint existed. The comparison itself is constant-time (`src/lib/timingSafeEqual.ts`) to avoid a length/content timing side-channel on the verifier string.
-
 ### `POST /api/secrets/:id/reveal`
 
-Atomically consumes one view.
+Verifies the password (if any) and atomically consumes one view in a single call — there is no separate password-check step. A wrong password is rejected here without consuming a view, so a typo can be retried for free.
 
 ```jsonc
-// request (body is optional when TURNSTILE_ENABLED="false")
-{ "turnstileToken": "..." } // required when TURNSTILE_ENABLED="true"; ignored otherwise
+// request (turnstileToken required when TURNSTILE_ENABLED="true"; verifier required only for password-protected secrets)
+{
+  "verifier": "b64",         // verifier half of deriveKeyAndVerifier(password, salt, iterations) client-side; omit for random-key mode
+  "turnstileToken": "..."
+}
 
-// response 200 — kdf is not returned here: the client already derived the key from the probe response's salt/iterations before verify-password
+// response 200 — kdf is not returned here: the client already derived the key from the probe response's salt/iterations
 { "ciphertext": "v1:ivB64:ctB64" }
-// response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before the view-consuming update, so a rejected token never burns a view)
+// response 400 (password-protected secret and `verifier` is missing/empty)
+{ "error": "verifier is required" }
+// response 401 (password-protected secret and `verifier` doesn't match — view NOT consumed)
+{ "error": "invalid password" }
+// response 403 (TURNSTILE_ENABLED="true" and the token is missing/invalid — checked before anything else, so a rejected token never burns a view or a guess)
 { "error": "Turnstile verification failed" }
-// response 404
+// response 404 (missing / burned / expired / views exhausted — same uniform 404 as elsewhere)
 { "error": "not found" }
 ```
 
-Uses a single `UPDATE ... WHERE view_count < max_views AND burned = 0 AND expires_at >= now() RETURNING ...` statement, so two concurrent reveals on a `maxViews: 1` secret can't both succeed. If this reveal exhausts `max_views`, the row is deleted immediately.
+For password-protected secrets, the server recomputes `HMAC-SHA256(key = salt, message = verifier)` (`src/lib/verifierHash.ts`) and compares it against the stored `kdf_verifier` with a constant-time comparison (`src/lib/timingSafeEqual.ts`) to avoid a length/content timing side-channel. A mismatch increments a per-secret `failed_attempts` counter *without* touching `view_count`; once `failed_attempts` reaches `FAILED_ATTEMPTS_CAP`, the row is burned (hard-deleted) the same way a successful reveal burns on `maxViews` exhaustion. This bounds total guesses cheaply on the server side, but the attacker still has to run a full 600,000-iteration PBKDF2 client-side per guess to produce a candidate verifier in the first place.
+
+Only once the password check passes (or the secret has no password) does the handler run the view-consuming step: a single `UPDATE ... WHERE view_count < max_views AND burned = 0 AND expires_at >= now() RETURNING ...` statement, so two concurrent reveals on a `maxViews: 1` secret can't both succeed. If this reveal exhausts `max_views`, the row is deleted immediately.
 
 ### `DELETE /api/secrets/:id`
 
@@ -180,4 +170,4 @@ See `schema.sql`. One table, `secrets`, no `users` table — this is an anonymou
 
 ## Known gaps (planned follow-up passes)
 
-- **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets`, `POST /api/secrets/:id/reveal`, and especially `POST /api/secrets/:id/verify-password` (its whole purpose is to accept repeated guesses cheaply, so it's the best candidate for a dashboard rate limit rule once that pass happens) in the meantime — see `DEPLOYMENT.md`.
+- **Rate limiting**: not implemented in-Worker; use Cloudflare's dashboard Rate Limiting Rules on `POST /api/secrets` and especially `POST /api/secrets/:id/reveal` (a wrong-password guess against it is cheap for the server and doesn't consume a view, so it's the best candidate for a dashboard rate limit rule once that pass happens) in the meantime — see `DEPLOYMENT.md`.
