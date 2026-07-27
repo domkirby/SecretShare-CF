@@ -16,7 +16,7 @@ import {
   MIN_PBKDF2_ITERATIONS,
   MAX_PBKDF2_ITERATIONS,
 } from "../lib/crypto";
-import { probeSecret, revealSecret, verifyPassword, deleteSecret, ApiError } from "../lib/api";
+import { probeSecret, revealSecret, deleteSecret, ApiError } from "../lib/api";
 
 type ViewState = "loading" | "not-found" | "ready" | "revealed" | "error";
 
@@ -27,40 +27,7 @@ const fragmentKey = window.location.hash.slice(1);
 const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
 const turnstileWidget = ref<InstanceType<typeof TurnstileWidget> | null>(null);
-
-// Turnstile tokens are single-use, and revealing a password-protected secret needs
-// two protected calls back-to-back (verify-password, then reveal). This queue makes
-// sure each call gets its own fresh token instead of replaying a spent one: consuming
-// a ready token immediately kicks off a reset so the next one starts solving, and if
-// no token is ready yet the caller just awaits the next `verified` event.
 const turnstileToken = ref<string | null>(null);
-const turnstileReady = ref(false);
-let tokenWaiters: ((token: string) => void)[] = [];
-
-function handleTurnstileVerified(token: string) {
-  turnstileReady.value = true;
-  const waiter = tokenWaiters.shift();
-  if (waiter) {
-    waiter(token);
-  } else {
-    turnstileToken.value = token;
-  }
-}
-
-function handleTurnstileReset() {
-  turnstileReady.value = false;
-  turnstileToken.value = null;
-}
-
-function consumeTurnstileToken(): Promise<string> {
-  if (turnstileToken.value) {
-    const token = turnstileToken.value;
-    turnstileToken.value = null;
-    turnstileWidget.value?.reset();
-    return Promise.resolve(token);
-  }
-  return new Promise((resolve) => tokenWaiters.push(resolve));
-}
 
 const state = ref<ViewState>("loading");
 const requiresPassword = ref(false);
@@ -119,28 +86,30 @@ async function handleReveal() {
   try {
     // Per-attempt local on purpose: the password may change between retries.
     let derivedKey: CryptoKey | null = null;
+    let verifier: string | undefined;
     if (requiresPassword.value && passwordKdf.value) {
-      const { key, verifier } = await deriveKeyAndVerifier(
+      const derived = await deriveKeyAndVerifier(
         password.value,
         base64ToSalt(passwordKdf.value.salt),
         passwordKdf.value.iterations
       );
-      derivedKey = key;
-      const verifyToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
-      const valid = await verifyPassword(id, verifier, verifyToken);
-      if (!valid) {
-        passwordError.value = "Incorrect password — try again.";
-        return;
-      }
+      derivedKey = derived.key;
+      verifier = derived.verifier;
     }
 
-    const revealToken = turnstileEnabled ? await consumeTurnstileToken() : undefined;
-    const { ciphertext } = await revealSecret(id, revealToken);
+    const revealToken = turnstileEnabled ? (turnstileToken.value ?? undefined) : undefined;
+    const { ciphertext } = await revealSecret(id, { verifier, turnstileToken: revealToken });
+    turnstileToken.value = null;
+    turnstileWidget.value?.reset();
     const key = derivedKey ?? (await importKeyBase64Url(fragmentKey));
     plaintext.value = await decryptData(ciphertext, key, id);
     state.value = "revealed";
   } catch (e) {
-    if (e instanceof ApiError && e.status === 404) {
+    turnstileToken.value = null;
+    turnstileWidget.value?.reset();
+    if (e instanceof ApiError && e.status === 401) {
+      passwordError.value = "Incorrect password — try again.";
+    } else if (e instanceof ApiError && e.status === 404) {
       state.value = "not-found";
     } else {
       state.value = "error";
@@ -210,9 +179,9 @@ async function copyPlaintext() {
         <TurnstileWidget
           ref="turnstileWidget"
           :site-key="turnstileSiteKey"
-          @verified="handleTurnstileVerified"
-          @expired="handleTurnstileReset"
-          @error="handleTurnstileReset"
+          @verified="(token) => (turnstileToken = token)"
+          @expired="turnstileToken = null"
+          @error="turnstileToken = null"
         />
       </div>
 
@@ -221,7 +190,7 @@ async function copyPlaintext() {
           label="Reveal Secret"
           icon="pi pi-eye"
           :loading="revealing"
-          :disabled="(requiresPassword && !password) || (turnstileEnabled && !turnstileReady)"
+          :disabled="(requiresPassword && !password) || (turnstileEnabled && !turnstileToken)"
           @click="handleReveal"
         />
         <Button label="Burn Now Without Viewing" severity="danger" outlined icon="pi pi-trash" @click="handleBurn" />

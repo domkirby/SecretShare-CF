@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { verifyTurnstile } from "../lib/turnstile";
 import { timingSafeEqual } from "../lib/timingSafeEqual";
+import { hashVerifier } from "../lib/verifierHash";
 
 export interface Env {
   DB: D1Database;
@@ -100,7 +101,7 @@ secrets.post("/", async (c) => {
     }
     kdfSalt = body.kdf.salt;
     kdfIterations = body.kdf.iterations;
-    kdfVerifier = body.kdf.verifier;
+    kdfVerifier = await hashVerifier(body.kdf.salt, body.kdf.verifier);
   }
 
   const turnstileOk = await verifyTurnstile(
@@ -163,70 +164,10 @@ secrets.get("/:id", async (c) => {
   });
 });
 
-secrets.post("/:id/verify-password", async (c) => {
-  const id = c.req.param("id");
-  let body: { verifier?: string; turnstileToken?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-
-  if (typeof body.verifier !== "string" || body.verifier.length === 0) {
-    return c.json({ error: "verifier is required" }, 400);
-  }
-
-  const turnstileOk = await verifyTurnstile(
-    c.env,
-    body.turnstileToken,
-    c.req.header("CF-Connecting-IP")
-  );
-  if (!turnstileOk) {
-    return c.json({ error: "Turnstile verification failed" }, 403);
-  }
-
-  const row = await c.env.DB.prepare(
-    `SELECT kdf_verifier, burned, expires_at, failed_attempts
-     FROM secrets WHERE id = ?`
-  )
-    .bind(id)
-    .first<{
-      kdf_verifier: string | null;
-      burned: number;
-      expires_at: string;
-      failed_attempts: number;
-    }>();
-
-  if (
-    !row ||
-    row.burned === 1 ||
-    new Date(row.expires_at).getTime() < Date.now() ||
-    row.kdf_verifier === null
-  ) {
-    return c.json({ error: "not found" }, 404);
-  }
-
-  if (timingSafeEqual(body.verifier, row.kdf_verifier)) {
-    return c.json({ valid: true });
-  }
-
-  const failedAttemptsCap = Number(c.env.FAILED_ATTEMPTS_CAP);
-  const newFailedAttempts = row.failed_attempts + 1;
-  if (newFailedAttempts >= failedAttemptsCap) {
-    await c.env.DB.prepare(`DELETE FROM secrets WHERE id = ?`).bind(id).run();
-  } else {
-    await c.env.DB.prepare(`UPDATE secrets SET failed_attempts = ? WHERE id = ?`)
-      .bind(newFailedAttempts, id)
-      .run();
-  }
-
-  return c.json({ valid: false });
-});
-
 secrets.post("/:id/reveal", async (c) => {
   const id = c.req.param("id");
 
-  let body: { turnstileToken?: string } = {};
+  let body: { verifier?: string; turnstileToken?: string } = {};
   try {
     body = await c.req.json();
   } catch {
@@ -240,6 +181,50 @@ secrets.post("/:id/reveal", async (c) => {
   );
   if (!turnstileOk) {
     return c.json({ error: "Turnstile verification failed" }, 403);
+  }
+
+  const row = await c.env.DB.prepare(
+    `SELECT kdf_verifier, kdf_salt, burned, expires_at, failed_attempts, view_count, max_views
+     FROM secrets WHERE id = ?`
+  )
+    .bind(id)
+    .first<{
+      kdf_verifier: string | null;
+      kdf_salt: string | null;
+      burned: number;
+      expires_at: string;
+      failed_attempts: number;
+      view_count: number;
+      max_views: number;
+    }>();
+
+  if (
+    !row ||
+    row.burned === 1 ||
+    new Date(row.expires_at).getTime() < Date.now() ||
+    row.view_count >= row.max_views
+  ) {
+    return c.json({ error: "not found" }, 404);
+  }
+
+  if (row.kdf_salt !== null) {
+    if (typeof body.verifier !== "string" || body.verifier.length === 0) {
+      return c.json({ error: "verifier is required" }, 400);
+    }
+
+    const expected = await hashVerifier(row.kdf_salt, body.verifier);
+    if (!timingSafeEqual(expected, row.kdf_verifier ?? "")) {
+      const failedAttemptsCap = Number(c.env.FAILED_ATTEMPTS_CAP);
+      const newFailedAttempts = row.failed_attempts + 1;
+      if (newFailedAttempts >= failedAttemptsCap) {
+        await c.env.DB.prepare(`DELETE FROM secrets WHERE id = ?`).bind(id).run();
+      } else {
+        await c.env.DB.prepare(`UPDATE secrets SET failed_attempts = ? WHERE id = ?`)
+          .bind(newFailedAttempts, id)
+          .run();
+      }
+      return c.json({ error: "invalid password" }, 401);
+    }
   }
 
   const updated = await c.env.DB.prepare(
