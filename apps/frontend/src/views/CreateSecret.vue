@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import SelectButton from "primevue/selectbutton";
@@ -19,6 +19,7 @@ import {
   PBKDF2_ITERATIONS,
 } from "../lib/crypto";
 import { createSecret, deleteSecret, ApiError } from "../lib/api";
+import { estimatePasswordStrength, type PasswordStrength } from "../lib/passwordStrength";
 
 const MAX_PLAINTEXT_WARN_BYTES = 45_000;
 
@@ -35,6 +36,7 @@ const modeOptions = [
 
 const secretText = ref("");
 const password = ref("");
+const passwordStrength = ref<PasswordStrength | null>(null);
 const maxViews = ref(1);
 const ttlMinutes = ref(1440);
 const loading = ref(false);
@@ -71,6 +73,17 @@ const canSubmit = computed(() => {
 function suggestPassword() {
   password.value = generateSecurePassword();
 }
+
+// Guards against out-of-order results if a slower estimate for an earlier
+// keystroke resolves after a faster one for a later keystroke.
+let strengthRequestId = 0;
+watch(password, async (value) => {
+  const requestId = ++strengthRequestId;
+  const result = await estimatePasswordStrength(value);
+  if (requestId === strengthRequestId) {
+    passwordStrength.value = result;
+  }
+});
 
 async function handleSubmit() {
   if (!canSubmit.value) return;
@@ -199,10 +212,29 @@ function resetForm() {
           id="password"
           v-model="password"
           toggleMask
-          :feedback="true"
+          :feedback="false"
           class="ss-w-full"
           :inputStyle="{ width: '100%' }"
         />
+        <div v-if="passwordStrength" class="ss-strength">
+          <div class="ss-strength-bar">
+            <span
+              v-for="segment in 4"
+              :key="segment"
+              class="ss-strength-segment"
+              :class="{ filled: segment <= passwordStrength.score + 1 }"
+              :data-score="passwordStrength.score"
+            />
+          </div>
+          <span class="ss-strength-label" :data-score="passwordStrength.score">{{ passwordStrength.label }}</span>
+        </div>
+        <p v-if="passwordStrength && passwordStrength.score < 3 && passwordStrength.warning" class="ss-hint">
+          {{ passwordStrength.warning }}
+        </p>
+        <Message severity="warn" :closable="false" size="small" class="ss-mt">
+          The encryption key is derived directly from this password — a weak password means a weak key, no
+          matter how the link itself is protected.
+        </Message>
         <p class="ss-hint">
           Share this password with the recipient separately from the link (e.g. a phone call or a different
           chat thread) — it is never included in the link itself.
@@ -289,3 +321,71 @@ function resetForm() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ss-strength {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.ss-strength-bar {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.ss-strength-segment {
+  height: 0.3rem;
+  flex: 1;
+  border-radius: 999px;
+  background: light-dark(#e2e8f0, #33383f);
+}
+
+.ss-strength-segment.filled[data-score="0"] {
+  background: light-dark(#dc2626, #f87171);
+}
+
+.ss-strength-segment.filled[data-score="1"] {
+  background: light-dark(#ea580c, #fb923c);
+}
+
+.ss-strength-segment.filled[data-score="2"] {
+  background: light-dark(#ca8a04, #facc15);
+}
+
+.ss-strength-segment.filled[data-score="3"] {
+  background: light-dark(#65a30d, #a3e635);
+}
+
+.ss-strength-segment.filled[data-score="4"] {
+  background: light-dark(#16a34a, #4ade80);
+}
+
+.ss-strength-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ss-strength-label[data-score="0"] {
+  color: light-dark(#dc2626, #f87171);
+}
+
+.ss-strength-label[data-score="1"] {
+  color: light-dark(#ea580c, #fb923c);
+}
+
+.ss-strength-label[data-score="2"] {
+  color: light-dark(#ca8a04, #facc15);
+}
+
+.ss-strength-label[data-score="3"] {
+  color: light-dark(#65a30d, #a3e635);
+}
+
+.ss-strength-label[data-score="4"] {
+  color: light-dark(#16a34a, #4ade80);
+}
+</style>
