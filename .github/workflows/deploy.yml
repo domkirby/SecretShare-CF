@@ -116,6 +116,19 @@ jobs:
           FAILED_ATTEMPTS_CAP: ${{ vars.FAILED_ATTEMPTS_CAP }}
         run: node scripts/render-wrangler.mjs api --require-all
 
+      # Idempotent: wrangler records applied migrations in a `d1_migrations`
+      # table and skips anything already there, so a no-op push costs one
+      # "No migrations to apply!" and nothing else. Runs before the deploy so
+      # new code never reaches production ahead of the schema it needs.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "4"
+          command: d1 migrations apply DB --remote
+
       # `secrets:` makes wrangler-action run `wrangler secret put` for each
       # listed name (reading it from env) before deploying, so
       # TURNSTILE_SECRET_KEY is stored as a Worker secret and never written

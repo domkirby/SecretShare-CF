@@ -51,8 +51,10 @@
       "binding": "DB",
 
       // fill in: the name/ID of the D1 database in YOUR Cloudflare account.
-      // Create it with `npm run db:create` (or the dashboard), then apply
-      // ./schema.sql to it once with `npm run db:migrate:remote`.
+      // Create it with `npm run db:create` (or the dashboard). You do not need
+      // to apply the schema by hand — ./migrations/ is applied automatically
+      // by the deploy workflow (`wrangler d1 migrations apply DB --remote`,
+      // also available as `npm run db:migrate:remote`).
       //
       // For purely local `wrangler dev` these can stay as-is — local D1 is a
       // SQLite file under .wrangler/state/ keyed by the binding, and

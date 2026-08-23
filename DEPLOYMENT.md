@@ -1,114 +1,184 @@
-# Deployment (Cloudflare Dashboard, Git-Connected)
+# Deployment (GitHub Actions → Cloudflare Workers)
+
+Pushing to `main` deploys both apps to Cloudflare via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). Nothing deployment-specific is committed to this repo: each app's `wrangler.jsonc` is **generated at deploy time** from a committed `wrangler.jsonc.example` plus GitHub secrets and variables.
+
+That means a fork needs **zero file edits**. Set the secrets/variables listed below, push, done — and pulling upstream changes never conflicts, because the files that differ per-deployment aren't in git.
+
+## How it works
+
+```
+apps/<app>/wrangler.jsonc.example   committed template, placeholder values
+              +
+GitHub secrets & variables          your deployment's real values
+              ↓  scripts/render-wrangler.mjs
+apps/<app>/wrangler.jsonc           gitignored, written in the CI runner
+              ↓  cloudflare/wrangler-action
+        deployed Worker
+```
+
+[`scripts/render-wrangler.mjs`](scripts/render-wrangler.mjs) parses the example as JSONC and assigns a fixed, explicit list of keys from a fixed list of environment variables — no templating language, no text substitution. Every field it can touch is listed in the `FIELDS` table at the top of that file; anything else passes through from the example untouched. Run with `--require-all` (as CI does), it fails the build if a required value is missing rather than deploying against a placeholder.
+
+The two apps deploy independently and are path-filtered: a commit touching only `apps/frontend/` will not redeploy the API. Changes to the render script or the workflow itself redeploy both. The frontend job runs after the API job (the API's URL is baked into the frontend bundle at build time), but still runs when the API job was skipped.
+
+---
 
 ## Forking this repo
 
-`apps/api/wrangler.toml` and `apps/frontend/wrangler.toml` in this repo hold the *original* deployment's own live config (domain, D1 database ID) — not placeholders. That's a consequence of how Cloudflare's Git-connected Workers Builds work: it reads bindings and `[vars]` straight from whatever `wrangler.toml` is committed on the branch it builds, so these files have to stay committed and correct for the original deployment to keep working on every push.
+1. **Fork it.** Don't edit any `wrangler.jsonc.example` — you won't need to.
+2. **Create a Cloudflare API token** (below).
+3. **Create your D1 database** (below) — this is the one step that has to happen before the first deploy.
+4. **Set the GitHub secrets and variables** (below).
+5. **Push to `main`.** The workflow deploys the API, applies D1 migrations, then builds and deploys the frontend.
+6. **Close the loop on CORS**: once you know your frontend's final URL, set the `ALLOWED_ORIGIN` variable to it and push again (or re-run the workflow). Likewise set `VITE_API_BASE` to the API Worker's URL. On a first-ever deploy you don't know these URLs yet — see [First deploy, chicken-and-egg](#first-deploy-chicken-and-egg).
 
-If you're forking this to run your own copy, **before** connecting your fork to a new Cloudflare project:
-
-1. Copy `apps/api/wrangler.toml.example` over `apps/api/wrangler.toml`, and `apps/frontend/wrangler.toml.example` over `apps/frontend/wrangler.toml`, in your fork.
-2. Fill in the placeholder values as you go through the steps below (your own `database_id`, your own domain(s), etc).
-3. Commit that to your fork before connecting it to Cloudflare — otherwise your first deploy will point at the original's D1 database and domain.
-
-If you later want to pull upstream improvements into your fork, expect `wrangler.toml` to show a merge conflict — that's normal, since it's expected to diverge per-deployment; just keep your own values when resolving it.
-
-This describes a **pull** deployment: you connect this GitHub repo to Cloudflare once, and Cloudflare builds and deploys both apps whenever you push — no local `wrangler deploy` and no CI pipeline of your own required. Each app is connected as its own Cloudflare project, since they deploy independently (see the root [`README.md`](README.md)).
-
-You'll set up two things in the Cloudflare dashboard, both as **Workers** projects (via Cloudflare's Git-connected Workers Builds) — `apps/frontend` is a Workers *static-assets* project (no server-side Worker code, just `[assets]`-served files with SPA fallback), while `apps/api` is a regular code Worker:
-
-1. `apps/api`
-2. `apps/frontend`
-
-Do the API first — the frontend needs its deployed URL for `VITE_API_BASE`.
-
-## Prerequisites
-
-- This repo pushed to GitHub (or GitLab), with Cloudflare granted access to it.
-- A Cloudflare account with Workers + D1 available (all on the free tier for this project's scale).
+To pull in upstream improvements later, just merge or rebase. There is nothing per-deployment in the tree to conflict.
 
 ---
 
-## 1. Deploy the API (`apps/api`) as a Worker
+## 1. Cloudflare API token
 
-### 1.1 Create the D1 database
+Cloudflare dashboard → **My Profile → API Tokens → Create Token → Create Custom Token**.
 
-Do this first so you have a real `database_id` before the first deploy.
+Permissions:
 
-1. Cloudflare dashboard → **Storage & Databases → D1 SQL Database** → **Create**.
-2. Name it (e.g. `secretshare-prod`) and create it.
-3. Open the new database → **Console** tab → paste in the contents of [`apps/api/schema.sql`](apps/api/schema.sql) and run it. This creates the `secrets` table and its index.
-4. Copy the database's **Database ID** (shown on its overview page).
+| Type | Resource | Level |
+|---|---|---|
+| Account | Workers Scripts | Edit |
+| Account | D1 | Edit |
+| Account | Account Settings | Read |
 
-### 1.2 Update `wrangler.toml` with the real database ID
+Scope it to the account you're deploying into. Copy the token — this is the `CLOUDFLARE_API_TOKEN` secret.
 
-In [`apps/api/wrangler.toml`](apps/api/wrangler.toml), replace the placeholder `database_id` under `[[d1_databases]]` with the ID from step 1.1, and set `database_name` to match what you created. Commit and push this change — Cloudflare's Git-connected Workers deploys read bindings straight from `wrangler.toml` in the repo, so this file is the source of truth for the D1 binding.
+Your **Account ID** is on the right-hand side of any Workers page in the dashboard (or under Workers & Pages → Overview). That's the `CLOUDFLARE_ACCOUNT_ID` secret.
 
-Also review the other `[vars]` in that file before your first deploy — in particular set `ALLOWED_ORIGIN` to include the production frontend domain you'll get in step 2 (you can come back and add it after step 2, then push again; see step 1.6).
+## 2. Create the D1 database
 
-### 1.3 Create the Worker project
+The workflow applies migrations to a database, but it doesn't create one. Do this once, either way:
 
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Workers** → **Import a repository** (this flow is Cloudflare's Git-connected "Workers Builds").
-2. Select this repo and branch (e.g. `main`).
-3. Set the **root directory** to `apps/api` — this is a monorepo, so Cloudflare needs to know which subfolder to build from.
-4. Build settings: Cloudflare auto-detects `wrangler.toml` and uses `wrangler deploy` as the deploy command. No custom build command is needed (there's no compile step — Wrangler bundles the Worker itself). If prompted for a build command, leave it empty/default.
+```bash
+cd apps/api
+npm install
+npx wrangler d1 create secretshare-db     # or `npm run db:create`
+```
 
-### 1.4 (Optional) Turnstile bot protection
+or via the dashboard: **Storage & Databases → D1 SQL Database → Create**.
 
-Skip this if you're not enabling Turnstile — `TURNSTILE_ENABLED` defaults to `"false"` in `wrangler.toml`, which makes `POST /api/secrets` and `POST /:id/reveal` both accept requests with no token at all.
+Note the **name** and the **Database ID** it prints. Those become the `D1_DATABASE_NAME` variable and the `D1_DATABASE_ID` secret.
 
-To enable it:
+**You do not need to apply the schema by hand.** [`apps/api/migrations/`](apps/api/migrations) is a Wrangler D1 migrations directory, and the deploy workflow runs `wrangler d1 migrations apply DB --remote` before every API deploy. Wrangler records what it has applied in a `d1_migrations` table and skips those, so this is a no-op on every push after the first. Future schema changes are new numbered files in that directory — never edit an already-applied one.
 
-1. Cloudflare dashboard → **Turnstile** → **Add a site**. Register the domain(s) your frontend will be served from (its `workers.dev` domain and/or custom domain) and note the **Site Key** and **Secret Key** it gives you.
-2. In `apps/api/wrangler.toml`, set `TURNSTILE_ENABLED = "true"` and push.
-3. Worker project → **Settings → Variables and Secrets** → add `TURNSTILE_SECRET_KEY` as a **Secret** (encrypted) with the Secret Key from step 1 — never put this in `wrangler.toml`.
-4. When you set up the frontend project in step 2, set `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>` there.
+> If you are pointing this at a database that already has a `secrets` table from before migrations existed, that's fine: `0001_create_secrets.sql` uses `CREATE TABLE IF NOT EXISTS`, so applying it records the migration without touching existing data.
 
-Plain `[vars]` (`ALLOWED_ORIGIN`, `TURNSTILE_ENABLED`, `MAX_SECRET_BYTES`, etc.) don't need to be set in the dashboard — they come from `wrangler.toml` in the repo. Only add dashboard variables if you need an override that differs from what's committed (e.g. a per-environment value you don't want in git).
+## 3. (Optional) Turnstile
 
-### 1.5 First deploy
+Skip this if you don't want bot protection — the default is off, and `POST /api/secrets` / `POST /:id/reveal` then accept requests with no token.
 
-Trigger the deploy (either it runs automatically after import, or push a commit). Confirm:
+1. Cloudflare dashboard → **Turnstile → Add a site**. Register the domain(s) your frontend will be served from (its `workers.dev` domain and/or custom domain). Note the **Site Key** and **Secret Key**.
+2. Set the variables `TURNSTILE_ENABLED=true`, `VITE_TURNSTILE_ENABLED=true`, and `VITE_TURNSTILE_SITE_KEY=<your Site Key>`, and the secret `TURNSTILE_SECRET_KEY=<your Secret Key>`.
 
-- The Worker's URL (e.g. `https://secretshare-api.<your-subdomain>.workers.dev`) responds at `/health` with `{"ok":true}`.
-- The cron trigger is active: Worker project → **Triggers** tab should show the schedule from `wrangler.toml`'s `[triggers]` block (`*/5 * * * *`).
+The workflow pushes the secret key to the Worker with `wrangler secret put` on each deploy — it is never written into `wrangler.jsonc`. It only does this when `TURNSTILE_ENABLED` is `true`, so you can leave the secret unset while Turnstile is off.
 
-### 1.6 (Optional) Custom domain
+The site key is public by design (it ships in client JS), which is why it's a variable rather than a secret. `TURNSTILE_ENABLED` and `VITE_TURNSTILE_ENABLED` must agree — the API re-verifies tokens independently regardless, so a mismatch means either a pointless widget or requests the API rejects.
 
-Worker project → **Settings → Domains & Routes** → add a custom domain (e.g. `shareapi.example.com`) if you don't want the default `workers.dev` URL. Whichever domain you end up using is what the frontend's `VITE_API_BASE` will point to.
+## 4. GitHub secrets and variables
 
-Once you know your final frontend domain (next section), come back to `apps/api/wrangler.toml`, update `ALLOWED_ORIGIN` to include it, and push — Cloudflare will redeploy automatically.
+Repository → **Settings → Secrets and variables → Actions**.
+
+### Secrets (the `Secrets` tab)
+
+| Secret | Required | Description |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | yes | API token from step 1. |
+| `CLOUDFLARE_ACCOUNT_ID` | yes | Cloudflare account ID the Workers and D1 database live in. |
+| `D1_DATABASE_ID` | yes | UUID of the D1 database from step 2. Not a credential as such — it's useless without the API token — but it identifies your deployment, so it's kept out of logs and out of git. |
+| `TURNSTILE_SECRET_KEY` | only if Turnstile is on | Turnstile server-side `siteverify` key. Pushed to the Worker via `wrangler secret put`. |
+
+### Variables (the `Variables` tab)
+
+| Variable | Required | Description |
+|---|---|---|
+| `D1_DATABASE_NAME` | yes | Name of the D1 database from step 2, e.g. `secretshare-db`. |
+| `ALLOWED_ORIGIN` | yes | Comma-separated CORS allowlist for the API. Must contain every origin the frontend is served from, e.g. `https://secret.example.com`. No trailing slash. |
+| `VITE_API_BASE` | yes | Base URL of the deployed API Worker, e.g. `https://secretshare-api.<subdomain>.workers.dev` or your custom domain. No trailing slash, no `/api` suffix. Baked into the frontend bundle at build time. |
+| `CF_WORKER_NAME_API` | no | Overrides the API Worker's name (default `secretshare-api`). Determines its `*.workers.dev` hostname. |
+| `CF_WORKER_NAME_FRONTEND` | no | Overrides the frontend Worker's name (default `secretsharecf-frontend`). |
+| `TURNSTILE_ENABLED` | no | `true`/`false` (default `false`). Gates Turnstile on the API, and gates whether the workflow pushes `TURNSTILE_SECRET_KEY`. |
+| `VITE_TURNSTILE_ENABLED` | no | `true`/`false` (default `false`). Mounts the Turnstile widget in the frontend. Keep in sync with `TURNSTILE_ENABLED`. |
+| `VITE_TURNSTILE_SITE_KEY` | no | Turnstile site key. Public — safe in client JS. |
+| `MAX_SECRET_BYTES` | no | Max ciphertext size accepted on create (default `65536`). |
+| `DEFAULT_TTL_MINUTES` | no | TTL when `ttlMinutes` is omitted (default `1440`). |
+| `MAX_TTL_MINUTES` | no | Upper bound for `ttlMinutes` (default `10080`). |
+| `MAX_VIEWS_CAP` | no | Upper bound for `maxViews` (default `10`). |
+| `FAILED_ATTEMPTS_CAP` | no | Wrong-password guesses before a secret is burned (default `5`). |
+
+Unset optional variables fall back to the values in each app's `wrangler.jsonc.example`, so you only need to set what you actually want to change. See [`apps/api/README.md`](apps/api/README.md#configuration) for what each tuning variable bounds.
+
+## 5. First deploy, chicken-and-egg
+
+`ALLOWED_ORIGIN` and `VITE_API_BASE` each refer to the *other* app's deployed URL, which you don't know until something has deployed once. Two ways through it:
+
+- **Predict the URLs.** Workers get `https://<worker-name>.<your-subdomain>.workers.dev`, and your subdomain is shown under Workers & Pages → Overview. Set both variables up front from the names you chose and the first deploy is already correct.
+- **Deploy twice.** Set them to anything (or set `VITE_API_BASE` and leave `ALLOWED_ORIGIN` at a placeholder), push, read the real URLs off the two Workers, correct the variables, then re-run the workflow from the **Actions** tab (**Deploy → Run workflow**, with *Deploy both apps* checked).
+
+If you attach custom domains afterwards, update both variables to the custom domains and re-run the workflow — `VITE_API_BASE` in particular is compiled into the frontend bundle, so changing it requires a rebuild, not just a settings change.
+
+## 6. Verifying a deployment
+
+1. `GET https://<api-worker>/health` returns `{"ok":true}`.
+2. API Worker → **Settings → Triggers** shows the cron schedule `*/5 * * * *` (the expiry sweep).
+3. Open the frontend, create a secret, confirm a share link appears.
+4. Open the share link (ideally in a private window) and reveal it — the plaintext should round-trip.
+5. Reload the same reveal link — it should now report expired/not-found (view consumed).
+6. If anything 500s, check the API Worker's **Logs** tab. A CORS error in the browser console means `ALLOWED_ORIGIN` doesn't list the frontend's origin.
 
 ---
 
-## 2. Deploy the frontend (`apps/frontend`) as a Workers static-assets project
+## Local development
 
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Workers** → **Import a repository**.
-2. Select the same repo/branch.
-3. Set the **root directory** to `apps/frontend`.
-4. Build settings: **Build command**: `npm run build`. Cloudflare auto-detects [`apps/frontend/wrangler.toml`](apps/frontend/wrangler.toml), whose `[assets]` block (`directory = "./dist"`, `not_found_handling = "single-page-application"`) tells it to serve the built `dist/` folder as static assets, falling back to `index.html` for any request that doesn't match a real file — this is what makes direct loads of `/s/:id` links work, since the app uses `vue-router`'s history mode. There's no server-side Worker code for this app (no `main` in its `wrangler.toml`), so nothing else to configure here.
-5. **Environment variables** (project → **Settings → Variables and Secrets**, set for both Production and Preview):
-   - `VITE_API_BASE` = the API Worker's URL from step 1 (e.g. `https://secretshare-api.<your-subdomain>.workers.dev` or your custom domain). This is read at **build time** by Vite, so it must be set here before deploying, not adjustable after the fact without a rebuild.
-   - If you enabled Turnstile in step 1.4: `VITE_TURNSTILE_ENABLED=true` and `VITE_TURNSTILE_SITE_KEY=<your Site Key>`. The site key is public (it's meant to ship in client JS), so it's fine as a plain variable, not a secret.
-6. Deploy.
-7. (Optional) **Settings → Domains & Routes** to attach your own domain instead of the default `*.workers.dev` one.
+Local dev does not involve GitHub Actions or any of the secrets above.
 
-**Avoid `public/_redirects` for SPA fallback on this platform.** Workers Static Assets applies `_redirects` rules unconditionally — "always followed, regardless of whether or not an asset matches the incoming request" per Cloudflare's docs — so a broad SPA-fallback rule there (e.g. `/* /index.html 200`) ends up redirecting real asset requests (`/assets/*.js`) too, breaking the app. `not_found_handling = "single-page-application"` in `wrangler.toml` is the correct mechanism instead, since it only kicks in when no real asset matches.
+### `apps/api`
 
-### Closing the loop
+```bash
+cd apps/api
+npm install
+cp wrangler.jsonc.example wrangler.jsonc   # gitignored; safe to edit freely
+npm run db:migrate:local                   # applies migrations/ to local D1
+npm run dev                                # http://localhost:8787
+```
 
-If you set up a custom domain for the frontend after already deploying the API, go back to `apps/api/wrangler.toml`, add that domain to `ALLOWED_ORIGIN`, and push. Without this, the browser will get CORS errors calling the API from your production frontend domain.
+`wrangler.jsonc.example` has a comment on every field explaining what it's for. For purely local work you can leave the placeholders alone — local D1 is a SQLite file under `.wrangler/state/` keyed by the `DB` binding, so the placeholder `database_id` is never dereferenced. Fill in a real `database_name`/`database_id` only if you want to talk to remote D1 or deploy from your machine.
+
+For Turnstile locally, put `TURNSTILE_ENABLED=true` and `TURNSTILE_SECRET_KEY=...` in a gitignored `.dev.vars` file rather than in `wrangler.jsonc`. Cloudflare publishes [Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) that always pass or always fail.
+
+### `apps/frontend`
+
+```bash
+cd apps/frontend
+npm install
+cp .env.example .env.local                 # set VITE_API_BASE if not localhost:8787
+npm run dev                                # http://localhost:5173
+```
+
+You don't need a `wrangler.jsonc` here — `npm run dev` runs Vite, not Wrangler. Copy `wrangler.jsonc.example` to `wrangler.jsonc` only if you want to preview the built `dist/` through Wrangler or deploy by hand.
+
+Make sure the API's `ALLOWED_ORIGIN` includes `http://localhost:5173` (the example's default does) — the frontend calls the API cross-origin, with no dev proxy.
+
+### Deploying from your machine
+
+Not normally necessary, but with a filled-in `wrangler.jsonc` and `npx wrangler login`:
+
+```bash
+cd apps/api && npm run db:migrate:remote && npm run deploy
+cd ../frontend && npm run build && npx wrangler deploy
+```
 
 ---
 
-## Updating either app
+## Notes
 
-Because both are Git-connected, updates are just `git push` to the connected branch — each project rebuilds and redeploys independently. There is nothing else to run manually, and no reason to use `wrangler deploy` locally unless you want to deploy from your machine outside of git (not the workflow this document describes).
+**Avoid `public/_redirects` for SPA fallback.** Workers Static Assets applies `_redirects` rules unconditionally — "always followed, regardless of whether or not an asset matches the incoming request" per Cloudflare's docs — so a broad rule like `/* /index.html 200` also redirects real asset requests (`/assets/*.js`) and breaks the app. `"not_found_handling": "single-page-application"` in the frontend's `wrangler.jsonc` is the correct mechanism: it only applies when no real asset matches.
 
-## Verifying a deployment
+**Rate limiting** is not implemented in-Worker. Until it is, use Cloudflare dashboard Rate Limiting Rules on `POST /api/secrets` and especially `POST /api/secrets/:id/reveal`.
 
-Same checks as local dev (see each app's README), just against the deployed URLs:
-
-1. Open the frontend's Workers URL, create a secret, confirm a share link appears.
-2. Open the share link (ideally in a private window) and reveal it — confirm the plaintext round-trips correctly.
-3. Reload the same reveal link — confirm it now reports as expired/not-found (view consumed).
-4. Check the Worker's **Logs** tab (Real-time Logs) if anything 500s, and confirm the D1 database is the real one from step 1.1, not left pointing at a placeholder ID.
+**Don't also connect this repo to Cloudflare's Git-connected Workers Builds.** This repo used to deploy that way, which is why `wrangler.toml` had to be committed with real values. Running both at once means two deploy paths racing on the same Workers, and the dashboard-side build would fail anyway now that no `wrangler.jsonc` is committed. If a Git integration is still connected in the Cloudflare dashboard, disconnect it.

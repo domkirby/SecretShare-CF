@@ -14,11 +14,14 @@ This is a standalone npm package, deployed independently of `apps/frontend`.
 
 ```bash
 npm install
+cp wrangler.jsonc.example wrangler.jsonc
 ```
+
+`wrangler.jsonc` is gitignored — it holds your own deployment's values and is never committed. `wrangler.jsonc.example` is the committed template, with a comment on every field explaining what to put there. For purely local work you can leave its placeholders alone.
 
 ### Local D1 database
 
-`wrangler dev` uses a local SQLite-backed D1 instance under `.wrangler/state/` — this works out of the box, no Cloudflare login required, but the schema needs to be applied once:
+`wrangler dev` uses a local SQLite-backed D1 instance under `.wrangler/state/` — this works out of the box, no Cloudflare login required, but the migrations need to be applied once:
 
 ```bash
 npm run db:migrate:local
@@ -32,7 +35,7 @@ Create the real D1 database in your Cloudflare account:
 npm run db:create
 ```
 
-This prints a `database_id` — paste it into `wrangler.toml` under `[[d1_databases]]`. Then apply the schema to it:
+This prints a `database_id`. In CI it comes from the `D1_DATABASE_ID` GitHub secret (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)); for deploying by hand, put it in your local `wrangler.jsonc` under `d1_databases`. Migrations are applied automatically by the deploy workflow, but you can also run them yourself:
 
 ```bash
 npm run db:migrate:remote
@@ -51,18 +54,21 @@ Starts the Worker on `http://localhost:8787`. `GET /health` returns `{ "ok": tru
 | Script | Purpose |
 |---|---|
 | `npm run dev` | `wrangler dev` — local Worker + local D1 |
-| `npm run deploy` | `wrangler deploy` — manual/CLI deploy (not needed if using Cloudflare's git-connected "pull" deployment; see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)) |
+| `npm run deploy` | `wrangler deploy` — manual/CLI deploy from your machine. Not needed normally: pushing to `main` deploys via GitHub Actions (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run db:create` | Creates the remote D1 database |
-| `npm run db:migrate:local` | Applies `schema.sql` to the local D1 instance |
-| `npm run db:migrate:remote` | Applies `schema.sql` to the real, remote D1 database |
+| `npm run db:migrate:local` | Applies pending `migrations/` to the local D1 instance |
+| `npm run db:migrate:remote` | Applies pending `migrations/` to the real, remote D1 database |
+| `npm run db:migrations:list` | Shows which `migrations/` are still unapplied remotely |
 | `npm run db:query:local` | Ad hoc `wrangler d1 execute --local --command` for local debugging |
 
 ## Configuration
 
-All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wrangler secret put`, never committed). There is no `.env` file for a Worker — Wrangler is the source of truth for both dev and deployed config.
+All configuration lives in `wrangler.jsonc` (plain vars) and Worker secrets (`wrangler secret put`, never committed). There is no `.env` file for a Worker — Wrangler is the source of truth for both dev and deployed config.
 
-### `[vars]` (plain, non-secret)
+`wrangler.jsonc` itself is gitignored. Locally you create it with `cp wrangler.jsonc.example wrangler.jsonc`; in CI it is generated from that same example by `scripts/render-wrangler.mjs`, which overwrites a fixed list of fields from GitHub secrets/variables — so the values below are set in one of those two places, never committed.
+
+### `vars` (plain, non-secret)
 
 | Var | Purpose | Current default |
 |---|---|---|
@@ -74,22 +80,22 @@ All configuration lives in `wrangler.toml` (plain vars) and Worker secrets (`wra
 | `MAX_VIEWS_CAP` | Upper bound for `maxViews`; requests over this get a 400. | `"10"` |
 | `FAILED_ATTEMPTS_CAP` | Max wrong-password guesses (via `POST /:id/reveal`) before a password-protected secret is burned. Independent of `maxViews` — a wrong guess never consumes a view, so this budget exists purely to bound total guesses. | `"5"` |
 
-### `[[d1_databases]]`
+### `d1_databases`
 
-- `binding = "DB"` — the binding name used in code (`c.env.DB`).
-- `database_name` / `database_id` — identify the actual D1 database. The committed `database_id` is a placeholder/dev value; replace it with your own database's ID after running `npm run db:create` (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md) for the dashboard equivalent).
+- `binding: "DB"` — the binding name used in code (`c.env.DB`). The npm scripts address the database by this binding rather than by name, so they work unmodified in any fork.
+- `database_name` / `database_id` — identify the actual D1 database. The example file's `database_id` is a placeholder; supply your own via the `D1_DATABASE_NAME` variable and `D1_DATABASE_ID` secret in CI, or in your local `wrangler.jsonc` after running `npm run db:create` (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)).
 
-### `[triggers]`
+### `triggers`
 
-- `crons = ["*/5 * * * *"]` — runs the `scheduled()` handler every 5 minutes, which deletes rows where `expires_at < now` or `burned = 1`. This replaces the original PHP tool's external cron script entirely — no separate scheduler or protected HTTP endpoint needed.
+- `crons: ["*/5 * * * *"]` — runs the `scheduled()` handler every 5 minutes, which deletes rows where `expires_at < now` or `burned = 1`. This replaces the original PHP tool's external cron script entirely — no separate scheduler or protected HTTP endpoint needed.
 
-### Secrets (not in `wrangler.toml`)
+### Secrets (not in `wrangler.jsonc`)
 
 | Secret | Purpose | Required when |
 |---|---|---|
 | `TURNSTILE_SECRET_KEY` | Server-side Turnstile `siteverify` key, POSTed to `https://challenges.cloudflare.com/turnstile/v0/siteverify` alongside the client's token on every create or reveal request. | Only read/required when `TURNSTILE_ENABLED = "true"`. If enabled but unset, verification always fails (fails closed, not open). |
 
-Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings (see `DEPLOYMENT.md`). For local dev, put it in a gitignored `.dev.vars` file instead (`TURNSTILE_ENABLED=true` / `TURNSTILE_SECRET_KEY=...`) — see [Cloudflare's Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) for dummy site/secret keys that always pass or always fail, useful for exercising this locally without a real Turnstile site.
+Set via `wrangler secret put TURNSTILE_SECRET_KEY` (CLI) or the Cloudflare dashboard's Worker settings. The deploy workflow does this for you from the `TURNSTILE_SECRET_KEY` GitHub secret whenever the `TURNSTILE_ENABLED` variable is `true` (see `DEPLOYMENT.md`) — it is never written into `wrangler.jsonc`. For local dev, put it in a gitignored `.dev.vars` file instead (`TURNSTILE_ENABLED=true` / `TURNSTILE_SECRET_KEY=...`) — see [Cloudflare's Turnstile testing keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) for dummy site/secret keys that always pass or always fail, useful for exercising this locally without a real Turnstile site.
 
 The server always re-verifies the token itself when `TURNSTILE_ENABLED` is `"true"` — a modified or no-JS frontend can't bypass this by simply omitting `turnstileToken`, since a missing token fails verification the same as an invalid one. Revealing a password-protected secret is a single `POST /:id/reveal` call (password check and view consumption happen together), so it only ever needs one token per attempt — no token queuing/replay concerns like a multi-call flow would have.
 
@@ -166,7 +172,9 @@ Burns the secret immediately. Always returns `204`, whether or not the secret ex
 
 ## Data model (D1)
 
-See `schema.sql`. One table, `secrets`, no `users` table — this is an anonymous, link-possession-based tool.
+See [`migrations/0001_create_secrets.sql`](migrations/0001_create_secrets.sql). One table, `secrets`, no `users` table — this is an anonymous, link-possession-based tool.
+
+Schema changes go in a new numbered file under `migrations/`; never edit an already-applied one. Wrangler tracks what it has applied in a `d1_migrations` table and skips those, so `wrangler d1 migrations apply DB --remote` is safe to run on every deploy — which is exactly what the deploy workflow does.
 
 ## Known gaps (planned follow-up passes)
 

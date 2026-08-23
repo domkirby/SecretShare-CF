@@ -8,9 +8,10 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "db:create": "wrangler d1 create secretshare-db",
-    "db:migrate:local": "wrangler d1 execute DB --local --file=./schema.sql",
-    "db:migrate:remote": "wrangler d1 execute DB --remote --file=./schema.sql",
-    "db:query:local": "wrangler d1 execute DB --local --command"
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:query:local": "wrangler d1 execute DB --local --command",
+    "db:migrations:list": "wrangler d1 migrations list DB --remote"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260721.1",
