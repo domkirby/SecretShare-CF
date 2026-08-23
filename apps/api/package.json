@@ -11,11 +11,13 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:query:local": "wrangler d1 execute DB --local --command",
-    "db:migrations:list": "wrangler d1 migrations list DB --remote"
+    "db:migrations:list": "wrangler d1 migrations list DB --remote",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260721.1",
     "typescript": "^5.6.0",
+    "vitest": "^4.1.11",
     "wrangler": "^4.113.0"
   },
   "dependencies": {

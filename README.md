@@ -54,6 +54,16 @@ cd apps/frontend && npm install && cp .env.example .env.local && npm run dev   #
 
 See each app's README for full details, required environment variables, and available scripts.
 
+## Tests
+
+Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): the API's and frontend's unit tests, both typechecks, and a real frontend production build. The deploy workflow re-runs the tests before it deploys, so a red commit can't reach Cloudflare even on a direct push to `main`.
+
+```bash
+cd apps/api      && npm test    # timing-safe compare, verifier hashing
+cd apps/frontend && npm test    # AES-GCM round-trip, AAD binding, envelope parsing, PBKDF2/HKDF derivation
+node --test scripts/render-wrangler.test.mjs   # deploy config rendering (no install needed)
+```
+
 ## Status
 
 - ✅ Backend API: create / probe / reveal / delete, atomic view-consumption, cron-based expiry sweep

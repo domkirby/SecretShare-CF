@@ -7,6 +7,10 @@
  *   node scripts/render-wrangler.mjs api
  *   node scripts/render-wrangler.mjs frontend
  *
+ * Flags:
+ *   --require-all   fail if a field marked required below has no value set
+ *   --out <path>    write somewhere other than apps/<app>/wrangler.jsonc
+ *
  * Deliberately dumb: parse the example as JSONC, assign a fixed list of keys
  * from a fixed list of environment variables, write JSON back out. There is no
  * templating language and no text substitution — every field this can touch is
@@ -104,16 +108,22 @@ function setPath(root, path, value) {
 }
 
 function main(argv) {
-  const app = argv.find((a) => !a.startsWith("--"));
   const requireAll = argv.includes("--require-all");
 
-  if (!Object.hasOwn(FIELDS, app ?? "")) {
-    console.error(`usage: node scripts/render-wrangler.mjs <${Object.keys(FIELDS).join("|")}> [--require-all]`);
+  const outFlag = argv.indexOf("--out");
+  const outOverride = outFlag === -1 ? undefined : argv[outFlag + 1];
+  const positional = argv.filter((a, i) => !a.startsWith("--") && i !== outFlag + 1);
+  const app = positional[0];
+
+  if (!Object.hasOwn(FIELDS, app ?? "") || (outFlag !== -1 && !outOverride)) {
+    console.error(
+      `usage: node scripts/render-wrangler.mjs <${Object.keys(FIELDS).join("|")}> [--require-all] [--out <path>]`
+    );
     process.exit(2);
   }
 
   const examplePath = join(repoRoot, "apps", app, "wrangler.jsonc.example");
-  const outPath = join(repoRoot, "apps", app, "wrangler.jsonc");
+  const outPath = outOverride ?? join(repoRoot, "apps", app, "wrangler.jsonc");
 
   const config = JSON.parse(stripJsonComments(readFileSync(examplePath, "utf8")));
 

@@ -100,6 +100,12 @@ jobs:
         working-directory: apps/api
         run: npm run typecheck
 
+      # CI runs these on the PR too; repeating them here means a direct push to
+      # main, or a merge that raced another, still can't deploy a red commit.
+      - name: Test
+        working-directory: apps/api
+        run: npm test
+
       # Writes apps/api/wrangler.jsonc (gitignored) from wrangler.jsonc.example.
       # --require-all fails the run if a required secret/variable is unset,
       # rather than deploying against the template's placeholder D1 id.
@@ -166,6 +172,10 @@ jobs:
       - name: Install dependencies
         working-directory: apps/frontend
         run: npm ci
+
+      - name: Test
+        working-directory: apps/frontend
+        run: npm test
 
       - name: Render wrangler.jsonc
         env:

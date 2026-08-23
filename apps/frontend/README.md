@@ -36,6 +36,7 @@ Starts Vite on `http://localhost:5173`. Make sure `apps/api` is also running (se
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Type-checks (`vue-tsc -b`) then builds to `dist/` |
+| `npm test` | `vitest run` — unit tests for `src/lib/crypto.ts` |
 | `npm run preview` | Serves the production build locally |
 | `npm run typecheck` | `vue-tsc --noEmit` |
 

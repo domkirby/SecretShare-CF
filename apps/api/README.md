@@ -55,6 +55,7 @@ Starts the Worker on `http://localhost:8787`. `GET /health` returns `{ "ok": tru
 |---|---|
 | `npm run dev` | `wrangler dev` — local Worker + local D1 |
 | `npm run deploy` | `wrangler deploy` — manual/CLI deploy from your machine. Not needed normally: pushing to `main` deploys via GitHub Actions (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)) |
+| `npm test` | `vitest run` — unit tests for `src/lib/` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run db:create` | Creates the remote D1 database |
 | `npm run db:migrate:local` | Applies pending `migrations/` to the local D1 instance |
