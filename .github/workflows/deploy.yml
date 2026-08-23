@@ -1,0 +1,185 @@
+name: Deploy
+
+# Deploys both apps to Cloudflare Workers on push to main.
+#
+# Each app's wrangler.jsonc is rendered at deploy time from its committed
+# wrangler.jsonc.example plus the GitHub secrets/variables listed below, so no
+# deployment-specific values are ever committed. See DEPLOYMENT.md for the full
+# list and how to set them.
+#
+# Required secrets:   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
+#                     D1_DATABASE_ID, TURNSTILE_SECRET_KEY (only if Turnstile on)
+# Required variables: D1_DATABASE_NAME, ALLOWED_ORIGIN, VITE_API_BASE
+# Optional variables: CF_WORKER_NAME_API, CF_WORKER_NAME_FRONTEND,
+#                     TURNSTILE_ENABLED, VITE_TURNSTILE_ENABLED,
+#                     VITE_TURNSTILE_SITE_KEY, MAX_SECRET_BYTES,
+#                     DEFAULT_TTL_MINUTES, MAX_TTL_MINUTES, MAX_VIEWS_CAP,
+#                     FAILED_ATTEMPTS_CAP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: "Deploy both apps regardless of what changed"
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Decide which apps to deploy. Doing this with `git diff` rather than a
+  # third-party filter action keeps the dependency surface to Cloudflare's own
+  # action plus GitHub's. Shared files (the render script, this workflow)
+  # trigger both.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          BEFORE: ${{ github.event.before }}
+          DEPLOY_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_all }}
+        run: |
+          set -euo pipefail
+
+          # No usable base (first push to a new branch, or a manual run asking
+          # for everything) => deploy both.
+          if [ "$DEPLOY_ALL" = "true" ] || [ -z "${BEFORE:-}" ] \
+             || [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "api=true"      >> "$GITHUB_OUTPUT"
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+            echo "No diff base (or deploy_all requested) — deploying both apps."
+            exit 0
+          fi
+
+          changed=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
+          echo "Changed files:"; echo "$changed"
+
+          match() { echo "$changed" | grep -qE "$1"; }
+
+          shared='^(scripts/render-wrangler\.mjs|\.github/workflows/deploy\.yml)$'
+          if match "$shared" || match '^apps/api/'; then api=true; else api=false; fi
+          if match "$shared" || match '^apps/frontend/'; then frontend=true; else frontend=false; fi
+
+          echo "api=$api"           >> "$GITHUB_OUTPUT"
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+
+  deploy-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: npm ci
+
+      - name: Type-check
+        working-directory: apps/api
+        run: npm run typecheck
+
+      # Writes apps/api/wrangler.jsonc (gitignored) from wrangler.jsonc.example.
+      # --require-all fails the run if a required secret/variable is unset,
+      # rather than deploying against the template's placeholder D1 id.
+      - name: Render wrangler.jsonc
+        env:
+          CF_WORKER_NAME_API: ${{ vars.CF_WORKER_NAME_API }}
+          D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          ALLOWED_ORIGIN: ${{ vars.ALLOWED_ORIGIN }}
+          TURNSTILE_ENABLED: ${{ vars.TURNSTILE_ENABLED }}
+          MAX_SECRET_BYTES: ${{ vars.MAX_SECRET_BYTES }}
+          DEFAULT_TTL_MINUTES: ${{ vars.DEFAULT_TTL_MINUTES }}
+          MAX_TTL_MINUTES: ${{ vars.MAX_TTL_MINUTES }}
+          MAX_VIEWS_CAP: ${{ vars.MAX_VIEWS_CAP }}
+          FAILED_ATTEMPTS_CAP: ${{ vars.FAILED_ATTEMPTS_CAP }}
+        run: node scripts/render-wrangler.mjs api --require-all
+
+      # `secrets:` makes wrangler-action run `wrangler secret put` for each
+      # listed name (reading it from env) before deploying, so
+      # TURNSTILE_SECRET_KEY is stored as a Worker secret and never written
+      # into wrangler.jsonc. The expression makes that list empty when
+      # Turnstile is off, so we don't push an empty secret.
+      - name: Deploy API Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "4"
+          command: deploy
+          secrets: ${{ vars.TURNSTILE_ENABLED == 'true' && 'TURNSTILE_SECRET_KEY' || '' }}
+        env:
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+  deploy-frontend:
+    needs: [changes, deploy-api]
+    # Runs after the API (its URL is baked into the frontend bundle at build
+    # time), but still runs when the API job was skipped because nothing under
+    # apps/api changed. Does not run if the API deploy actually failed.
+    if: ${{ !cancelled() && needs.changes.outputs.frontend == 'true' && needs.deploy-api.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/frontend
+        run: npm ci
+
+      - name: Render wrangler.jsonc
+        env:
+          CF_WORKER_NAME_FRONTEND: ${{ vars.CF_WORKER_NAME_FRONTEND }}
+        run: node scripts/render-wrangler.mjs frontend --require-all
+
+      # Vite bakes VITE_* into the bundle at build time — they are read here,
+      # not at request time. VITE_API_BASE must point at the deployed API
+      # Worker from the job above.
+      - name: Build
+        working-directory: apps/frontend
+        env:
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          VITE_TURNSTILE_ENABLED: ${{ vars.VITE_TURNSTILE_ENABLED }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VITE_API_BASE:-}" ]; then
+            echo "::error::Repository variable VITE_API_BASE is not set — the built app would have no API to call. See DEPLOYMENT.md."
+            exit 1
+          fi
+          npm run build
+
+      - name: Deploy frontend Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/frontend
+          wranglerVersion: "4"
+          command: deploy

@@ -1,0 +1,64 @@
+name: Initialize D1 schema
+
+# One-time (manual only) application of apps/api/schema.sql to the remote D1
+# database. Deliberately NOT part of Deploy: schema.sql uses bare
+# `CREATE TABLE` / `CREATE INDEX`, so re-running it against an initialized
+# database fails rather than silently doing anything — which is the safe
+# failure mode, but not one you want on every push to main.
+#
+# Run this once, from the Actions tab, after creating the D1 database and
+# setting D1_DATABASE_NAME / D1_DATABASE_ID. See DEPLOYMENT.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to confirm running schema.sql against the remote D1 database'
+        required: true
+        type: string
+
+concurrency:
+  group: d1-init
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: ${{ inputs.confirm != 'apply' }}
+        run: |
+          echo '::error::Confirmation input must be exactly "apply".'
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: npm ci
+
+      - name: Render wrangler.jsonc
+        env:
+          CF_WORKER_NAME_API: ${{ vars.CF_WORKER_NAME_API }}
+          D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          ALLOWED_ORIGIN: ${{ vars.ALLOWED_ORIGIN }}
+        run: node scripts/render-wrangler.mjs api --require-all
+
+      - name: Apply schema.sql to remote D1
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "4"
+          command: d1 execute DB --remote --file=./schema.sql --yes

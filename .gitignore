@@ -2,3 +2,8 @@ node_modules/
 .wrangler/
 .dev.vars
 dist/
+
+# Rendered per-deployment Wrangler config. Never committed — copy the
+# committed wrangler.jsonc.example alongside it for local dev, or let
+# .github/workflows/deploy.yml render it in CI.
+apps/*/wrangler.jsonc
