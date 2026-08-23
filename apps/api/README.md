@@ -35,7 +35,7 @@ Create the real D1 database in your Cloudflare account:
 npm run db:create
 ```
 
-This prints a `database_id`. In CI it comes from the `D1_DATABASE_ID` GitHub secret (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)); for deploying by hand, put it in your local `wrangler.jsonc` under `d1_databases`. Migrations are applied automatically by the deploy workflow, but you can also run them yourself:
+This prints a `database_id`. In CI it comes from the `D1_DATABASE_ID` GitHub variable (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)); for deploying by hand, put it in your local `wrangler.jsonc` under `d1_databases`. Migrations are applied automatically by the deploy workflow, but you can also run them yourself:
 
 ```bash
 npm run db:migrate:remote
@@ -83,7 +83,7 @@ All configuration lives in `wrangler.jsonc` (plain vars) and Worker secrets (`wr
 ### `d1_databases`
 
 - `binding: "DB"` — the binding name used in code (`c.env.DB`). The npm scripts address the database by this binding rather than by name, so they work unmodified in any fork.
-- `database_name` / `database_id` — identify the actual D1 database. The example file's `database_id` is a placeholder; supply your own via the `D1_DATABASE_NAME` variable and `D1_DATABASE_ID` secret in CI, or in your local `wrangler.jsonc` after running `npm run db:create` (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)).
+- `database_name` / `database_id` — identify the actual D1 database. The example file's `database_id` is a placeholder; supply your own via the `D1_DATABASE_NAME` and `D1_DATABASE_ID` variables in CI, or in your local `wrangler.jsonc` after running `npm run db:create` (see [`DEPLOYMENT.md`](../../DEPLOYMENT.md)).
 
 ### `triggers`
 

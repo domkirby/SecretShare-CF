@@ -139,8 +139,9 @@ function main(argv) {
 
   writeFileSync(outPath, JSON.stringify(config, null, 2) + "\n");
 
-  // Values are non-secret config keys (names, origins, caps); the only
-  // deployment-identifying one is the D1 id, so log the mapping, not the values.
+  // Every field here is non-secret config (names, origins, a D1 id, caps), but
+  // log the mapping rather than the values — it is what you actually want when
+  // debugging a deploy, and it keeps this honest if a secret is ever added.
   console.log(`render-wrangler: wrote ${outPath}`);
   for (const line of applied) console.log(`  ${line}`);
 }

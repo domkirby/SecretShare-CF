@@ -63,7 +63,7 @@ npx wrangler d1 create secretshare-db     # or `npm run db:create`
 
 or via the dashboard: **Storage & Databases → D1 SQL Database → Create**.
 
-Note the **name** and the **Database ID** it prints. Those become the `D1_DATABASE_NAME` variable and the `D1_DATABASE_ID` secret.
+Note the **name** and the **Database ID** it prints. Those become the `D1_DATABASE_NAME` and `D1_DATABASE_ID` repository variables.
 
 **You do not need to apply the schema by hand.** [`apps/api/migrations/`](apps/api/migrations) is a Wrangler D1 migrations directory, and the deploy workflow runs `wrangler d1 migrations apply DB --remote` before every API deploy. Wrangler records what it has applied in a `d1_migrations` table and skips those, so this is a no-op on every push after the first. Future schema changes are new numbered files in that directory — never edit an already-applied one.
 
@@ -90,7 +90,6 @@ Repository → **Settings → Secrets and variables → Actions**.
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | yes | API token from step 1. |
 | `CLOUDFLARE_ACCOUNT_ID` | yes | Cloudflare account ID the Workers and D1 database live in. |
-| `D1_DATABASE_ID` | yes | UUID of the D1 database from step 2. Not a credential as such — it's useless without the API token — but it identifies your deployment, so it's kept out of logs and out of git. |
 | `TURNSTILE_SECRET_KEY` | only if Turnstile is on | Turnstile server-side `siteverify` key. Pushed to the Worker via `wrangler secret put`. |
 
 ### Variables (the `Variables` tab)
@@ -98,6 +97,7 @@ Repository → **Settings → Secrets and variables → Actions**.
 | Variable | Required | Description |
 |---|---|---|
 | `D1_DATABASE_NAME` | yes | Name of the D1 database from step 2, e.g. `secretshare-db`. |
+| `D1_DATABASE_ID` | yes | UUID of the D1 database from step 2. Not a secret — it's inert hex without an API token or dashboard access — it just can't be committed, since it differs per deployment. |
 | `ALLOWED_ORIGIN` | yes | Comma-separated CORS allowlist for the API. Must contain every origin the frontend is served from, e.g. `https://secret.example.com`. No trailing slash. |
 | `VITE_API_BASE` | yes | Base URL of the deployed API Worker, e.g. `https://secretshare-api.<subdomain>.workers.dev` or your custom domain. No trailing slash, no `/api` suffix. Baked into the frontend bundle at build time. |
 | `CF_WORKER_NAME_API` | no | Overrides the API Worker's name (default `secretshare-api`). Determines its `*.workers.dev` hostname. |

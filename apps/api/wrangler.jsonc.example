@@ -61,7 +61,7 @@
       // `npm run db:migrate:local` seeds it. A real database_id is only
       // needed to deploy or to talk to remote D1.
       //
-      // CI overrides: vars.D1_DATABASE_NAME, secrets.D1_DATABASE_ID.
+      // CI overrides: vars.D1_DATABASE_NAME, vars.D1_DATABASE_ID.
       "database_name": "secretshare-db",
       "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
     }
