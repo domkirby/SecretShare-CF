@@ -1,0 +1,74 @@
+{
+  // ---------------------------------------------------------------------------
+  // apps/api — Cloudflare Worker (Hono + D1)
+  //
+  // THIS FILE IS A TEMPLATE. It is committed; `wrangler.jsonc` is gitignored.
+  //
+  //   Local dev:  cp wrangler.jsonc.example wrangler.jsonc  and edit the values
+  //               marked "fill in" below. Nothing you put in wrangler.jsonc is
+  //               ever committed.
+  //
+  //   CI deploy:  .github/workflows/deploy.yml renders wrangler.jsonc from this
+  //               file via `node scripts/render-wrangler.mjs api`, which
+  //               overwrites the fields below from GitHub secrets/variables.
+  //               See DEPLOYMENT.md for the exact secret/variable names.
+  // ---------------------------------------------------------------------------
+
+  // Worker name. Determines the default *.workers.dev hostname.
+  // CI override: vars.CF_WORKER_NAME_API (optional; defaults to this value).
+  "name": "secretshare-api",
+
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+
+  "vars": {
+    // Comma-separated list of origins allowed via CORS. Must include every
+    // frontend origin that will call this API. For local dev, the Vite dev
+    // server's origin.
+    // CI override: vars.ALLOWED_ORIGIN.
+    "ALLOWED_ORIGIN": "http://localhost:5173,http://localhost:8788",
+
+    // "true"/"false". Gates Turnstile verification on create and reveal.
+    // When "true", the Worker also needs the TURNSTILE_SECRET_KEY secret
+    // (`wrangler secret put TURNSTILE_SECRET_KEY`, or .dev.vars locally) —
+    // it fails closed, not open, if enabled without a key.
+    // CI override: vars.TURNSTILE_ENABLED.
+    "TURNSTILE_ENABLED": "false",
+
+    // Tuning knobs — see apps/api/README.md for what each one bounds.
+    // CI overrides exist for all of these but are optional; leave the
+    // GitHub variables unset to keep these defaults.
+    "MAX_SECRET_BYTES": "65536",
+    "DEFAULT_TTL_MINUTES": "1440",
+    "MAX_TTL_MINUTES": "10080",
+    "MAX_VIEWS_CAP": "10",
+    "FAILED_ATTEMPTS_CAP": "5"
+  },
+
+  "d1_databases": [
+    {
+      // Binding name used in code as `c.env.DB` — do not change.
+      "binding": "DB",
+
+      // fill in: the name/ID of the D1 database in YOUR Cloudflare account.
+      // Create it with `npm run db:create` (or the dashboard). You do not need
+      // to apply the schema by hand — ./migrations/ is applied automatically
+      // by the deploy workflow (`wrangler d1 migrations apply DB --remote`,
+      // also available as `npm run db:migrate:remote`).
+      //
+      // For purely local `wrangler dev` these can stay as-is — local D1 is a
+      // SQLite file under .wrangler/state/ keyed by the binding, and
+      // `npm run db:migrate:local` seeds it. A real database_id is only
+      // needed to deploy or to talk to remote D1.
+      //
+      // CI overrides: vars.D1_DATABASE_NAME, vars.D1_DATABASE_ID.
+      "database_name": "secretshare-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+    }
+  ],
+
+  // Runs the scheduled() handler every 5 minutes to delete expired/burned rows.
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  }
+}

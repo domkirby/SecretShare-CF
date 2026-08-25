@@ -1,0 +1,71 @@
+name: CI
+
+# Build/test gate. Runs on every pull request and on pushes to main, so a
+# change is known to compile and pass its tests before it can be merged (and,
+# via the deploy workflow's own test steps, before it can reach Cloudflare).
+#
+# Needs no secrets: nothing here talks to Cloudflare.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Guards scripts/render-wrangler.mjs and both committed wrangler.jsonc.example
+  # files. Pure node:test — no dependencies, so no install step.
+  config:
+    name: Wrangler config rendering
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/render-wrangler.test.mjs
+
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: npm ci
+        working-directory: apps/api
+      - run: npm run typecheck
+        working-directory: apps/api
+      - run: npm test
+        working-directory: apps/api
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci
+        working-directory: apps/frontend
+      - run: npm test
+        working-directory: apps/frontend
+      # `npm run build` runs vue-tsc first, so this covers typechecking too.
+      # VITE_API_BASE only has to be present and syntactically valid here —
+      # the real value is baked in at deploy time, not now.
+      - run: npm run build
+        working-directory: apps/frontend
+        env:
+          VITE_API_BASE: https://api.example.invalid

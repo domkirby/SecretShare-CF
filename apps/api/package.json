@@ -2,22 +2,28 @@
   "name": "@secretshare/api",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:create": "wrangler d1 create secretshare-test",
-    "db:migrate:local": "wrangler d1 execute secretshare-test --local --file=./schema.sql",
-    "db:migrate:remote": "wrangler d1 execute secretshare-test --remote --file=./schema.sql",
-    "db:query:local": "wrangler d1 execute secretshare-test --local --command"
+    "db:create": "wrangler d1 create secretshare-db",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:query:local": "wrangler d1 execute DB --local --command",
+    "db:migrations:list": "wrangler d1 migrations list DB --remote",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260721.1",
     "typescript": "^5.6.0",
+    "vitest": "^4.1.11",
     "wrangler": "^4.113.0"
   },
   "dependencies": {
-    "hono": "^4.6.0"
+    "hono": "^4.13.4"
   }
 }

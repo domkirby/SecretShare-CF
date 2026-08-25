@@ -8,7 +8,7 @@ Supports both **random-key mode** and **password mode**, plus an optional Turnst
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+
 - A running instance of `apps/api` (local `wrangler dev`, or a deployed Worker) to point at
 
 ## Setup
@@ -19,6 +19,8 @@ cp .env.example .env.local
 ```
 
 Edit `.env.local` if your API isn't at the default local address.
+
+You do not need a `wrangler.jsonc` for local development — `npm run dev` runs Vite, not Wrangler. Copy `wrangler.jsonc.example` to `wrangler.jsonc` (gitignored) only if you want to preview the built `dist/` through Wrangler or deploy by hand; CI renders its own from that same example.
 
 ## Running locally
 
@@ -34,6 +36,7 @@ Starts Vite on `http://localhost:5173`. Make sure `apps/api` is also running (se
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Type-checks (`vue-tsc -b`) then builds to `dist/` |
+| `npm test` | `vitest run` — unit tests for `src/lib/crypto.ts` |
 | `npm run preview` | Serves the production build locally |
 | `npm run typecheck` | `vue-tsc --noEmit` |
 
@@ -47,7 +50,7 @@ Config is a handful of Vite env vars, read at **build time** and exposed as `imp
 | `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on both the create form and the reveal form, blocking submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or requests the API will reject. | `false` |
 | `VITE_TURNSTILE_SITE_KEY` | The Turnstile **site key** (public, safe to ship in client JS) for your Cloudflare Turnstile widget. Only read when `VITE_TURNSTILE_ENABLED` is `true`. | `0x4AAAAAAA...` |
 
-Copy `.env.example` to `.env.local` for local dev. On Cloudflare, these are set as **build-time environment variables** in the Workers project settings (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the build runs, not read at request time.
+Copy `.env.example` to `.env.local` for local dev. For deploys, these are set as **GitHub repository variables** and passed to the build step by `.github/workflows/deploy.yml` (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the build runs, not read at request time.
 
 ## Routes
 
@@ -56,11 +59,12 @@ Copy `.env.example` to `.env.local` for local dev. On Cloudflare, these are set 
 | `/` | `CreateSecret.vue` | Compose a secret, pick max views / expiry, encrypt client-side, submit, get a share link |
 | `/s/:id` | `RevealSecret.vue` | Probe a secret's status, then explicitly reveal + decrypt it client-side |
 
-Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{key}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`), configured via `wrangler.toml`'s `[assets]` block:
-```toml
-[assets]
-directory = "./dist"
-not_found_handling = "single-page-application"
+Routing uses `vue-router`'s `createWebHistory` (**not** hash mode) — the share link's `#{key}` fragment *is* the encryption key, not a router hash-route, so the router must leave `location.hash` alone. This requires the hosting platform to serve `index.html` for unknown paths (e.g. a direct load of `/s/abc123`), configured via `wrangler.jsonc`'s `assets` block:
+```jsonc
+"assets": {
+  "directory": "./dist",
+  "not_found_handling": "single-page-application"
+}
 ```
 `not_found_handling = "single-page-application"` serves `index.html` only when a request doesn't match a real file in `directory` — real asset requests (`/assets/*.js`, etc.) are still served directly. This replaced an earlier `public/_redirects`-based approach (`/*  /index.html  200` or `/*  /  200`): on Workers Static Assets, `_redirects` rules are unconditional ("always followed, regardless of whether or not an asset matches the incoming request" per Cloudflare's docs), so a broad SPA-fallback rule there ends up redirecting real asset requests too, breaking the app. `index.html` still sets `<base href="/" />` from that earlier attempt — harmless, left in place.
 

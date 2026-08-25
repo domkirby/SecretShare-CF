@@ -1,0 +1,35 @@
+{
+  // ---------------------------------------------------------------------------
+  // apps/frontend — Cloudflare Workers static-assets project (Vue 3 + Vite SPA)
+  //
+  // THIS FILE IS A TEMPLATE. It is committed; `wrangler.jsonc` is gitignored.
+  //
+  //   Local dev:  you do not normally need this file at all — `npm run dev`
+  //               runs Vite, not Wrangler. Copy it to wrangler.jsonc only if
+  //               you want to preview the built `dist/` through Wrangler
+  //               (`npx wrangler dev`) or deploy by hand.
+  //
+  //   CI deploy:  .github/workflows/deploy.yml renders wrangler.jsonc from this
+  //               file via `node scripts/render-wrangler.mjs frontend`.
+  // ---------------------------------------------------------------------------
+
+  // Worker name. Determines the default *.workers.dev hostname.
+  // CI override: vars.CF_WORKER_NAME_FRONTEND (optional; defaults to this value).
+  "name": "secretsharecf-frontend",
+
+  "compatibility_date": "2026-07-23",
+
+  // VITE_* build variables are NOT set here. Vite reads them from the process
+  // environment at build time and bakes them into the built JS; this project
+  // has no `main` Worker entry, so a "vars" block here would never be read at
+  // runtime anyway. Locally they come from .env.local; in CI they come from
+  // GitHub secrets/variables — see DEPLOYMENT.md.
+  "assets": {
+    "directory": "./dist",
+    // Serves index.html only when no real asset matches, which is what makes a
+    // direct load of /s/:id work under vue-router's history mode. Do NOT
+    // replace this with a public/_redirects rule — those are applied
+    // unconditionally on Workers Static Assets and would break /assets/*.js.
+    "not_found_handling": "single-page-application"
+  }
+}

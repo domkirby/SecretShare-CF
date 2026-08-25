@@ -31,10 +31,11 @@ Each app is a standalone npm package (not an npm workspace) — see each app's o
 
 ## Deploying
 
-> [!IMPORTANT]
-> Forking this to deploy your own copy? See the "Forking this repo" note at the top of [`DEPLOYMENT.md`](DEPLOYMENT.md) first — this repo's `wrangler.toml` files are the maintainer's own live config, not a template (use the `wrangler.toml.example` files instead).
+Pushing to `main` deploys both apps to Cloudflare Workers via GitHub Actions ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)).
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for step-by-step instructions to deploy both apps from the Cloudflare dashboard (a "pull" deployment — Cloudflare pulls from your GitHub repo on push, no local `wrangler deploy`/CI required).
+**Forking this to run your own copy needs no file edits.** Nothing deployment-specific is committed: each app's `wrangler.jsonc` is generated in CI from a committed `wrangler.jsonc.example` plus GitHub repository secrets and variables. Fork it, set those, push. Pulling upstream changes later never conflicts.
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full list of secrets/variables, the Cloudflare API token scope, and D1 setup.
 
 ## Local development
 
@@ -42,13 +43,26 @@ Run both apps side by side:
 
 ```bash
 # terminal 1
-cd apps/api && npm install && npm run db:migrate:local && npm run dev   # http://localhost:8787
+cd apps/api && npm install && cp wrangler.jsonc.example wrangler.jsonc \
+  && npm run db:migrate:local && npm run dev                            # http://localhost:8787
 
 # terminal 2
-cd apps/frontend && npm install && npm run dev                          # http://localhost:5173
+cd apps/frontend && npm install && cp .env.example .env.local && npm run dev   # http://localhost:5173
 ```
 
+`apps/api/wrangler.jsonc` is gitignored — the committed `wrangler.jsonc.example` is the template, with a comment on each field. The placeholders are fine for local work.
+
 See each app's README for full details, required environment variables, and available scripts.
+
+## Tests
+
+Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): the API's and frontend's unit tests, both typechecks, and a real frontend production build. The deploy workflow re-runs the tests before it deploys, so a red commit can't reach Cloudflare even on a direct push to `main`.
+
+```bash
+cd apps/api      && npm test    # timing-safe compare, verifier hashing
+cd apps/frontend && npm test    # AES-GCM round-trip, AAD binding, envelope parsing, PBKDF2/HKDF derivation
+node --test scripts/render-wrangler.test.mjs   # deploy config rendering (no install needed)
+```
 
 ## Status
 
