@@ -8,7 +8,7 @@ Supports both **random-key mode** and **password mode**, plus an optional Turnst
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+
 - A running instance of `apps/api` (local `wrangler dev`, or a deployed Worker) to point at
 
 ## Setup

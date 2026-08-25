@@ -6,7 +6,7 @@ This is a standalone npm package, deployed independently of `apps/frontend`.
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 22+
 - A Cloudflare account (for deployment / remote D1)
 - `wrangler` (installed as a dev dependency, invoked via `npm run` scripts)
 
