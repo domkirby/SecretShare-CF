@@ -20,6 +20,34 @@ function base64UrlToBuf(s: string): Uint8Array {
   return base64ToBuf(b64 + "=".repeat((4 - (b64.length % 4)) % 4));
 }
 
+/**
+ * Prepends a 4-byte big-endian length header to `bytes`, then zero-pads to
+ * the next 16-byte boundary (no padding added if already aligned). This
+ * hides the exact plaintext length from anyone who only sees ciphertext
+ * length — GCM ciphertext is exactly as long as its plaintext, so without
+ * this a secret's byte count would leak for free.
+ */
+export function padPlaintext(bytes: Uint8Array): Uint8Array {
+  const totalLen = 4 + bytes.length;
+  const paddedLen = totalLen % 16 === 0 ? totalLen : totalLen + (16 - (totalLen % 16));
+  const out = new Uint8Array(paddedLen);
+  new DataView(out.buffer).setUint32(0, bytes.length, false);
+  out.set(bytes, 4);
+  return out;
+}
+
+/** Inverse of {@link padPlaintext}: reads the length header and returns exactly that many bytes. */
+export function unpadPlaintext(padded: Uint8Array): Uint8Array {
+  if (padded.length < 4) {
+    throw new Error("Malformed plaintext padding");
+  }
+  const n = new DataView(padded.buffer, padded.byteOffset, padded.byteLength).getUint32(0, false);
+  if (n > padded.length - 4) {
+    throw new Error("Malformed plaintext padding");
+  }
+  return padded.slice(4, 4 + n);
+}
+
 export const PBKDF2_ITERATIONS = 600_000;
 /**
  * Accepted range for server-supplied iteration counts. The value round-trips
@@ -153,11 +181,11 @@ export async function encryptData(
   aad: string
 ): Promise<{ ciphertext: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plainBytes = new TextEncoder().encode(plaintext);
+  const plainBytes = padPlaintext(new TextEncoder().encode(plaintext));
   const cipherBuf = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(aad) },
     key,
-    plainBytes
+    plainBytes as BufferSource
   );
   const envelope = `${ENVELOPE_VERSION}:${bufToBase64(iv)}:${bufToBase64(new Uint8Array(cipherBuf))}`;
   return { ciphertext: envelope };
@@ -182,5 +210,5 @@ export async function decryptData(envelope: string, key: CryptoKey, aad: string)
     key,
     data as BufferSource
   );
-  return new TextDecoder().decode(plainBuf);
+  return new TextDecoder().decode(unpadPlaintext(new Uint8Array(plainBuf)));
 }

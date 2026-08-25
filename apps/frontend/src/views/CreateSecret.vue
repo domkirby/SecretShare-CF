@@ -21,6 +21,8 @@ import {
 import { createSecret, deleteSecret, ApiError } from "../lib/api";
 import { estimatePasswordStrength, type PasswordStrength } from "../lib/passwordStrength";
 
+// Well below the server's real ciphertext-envelope cap; the margin already
+// absorbs the ~19 bytes of length-hiding padding added before encryption.
 const MAX_PLAINTEXT_WARN_BYTES = 45_000;
 
 const turnstileEnabled = import.meta.env.VITE_TURNSTILE_ENABLED === "true";

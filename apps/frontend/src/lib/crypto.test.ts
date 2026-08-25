@@ -14,7 +14,9 @@ import {
   generateSecurePassword,
   importKeyBase64Url,
   isValidKeyBase64Url,
+  padPlaintext,
   saltToBase64,
+  unpadPlaintext,
 } from "./crypto";
 
 // Real PBKDF2 at 600k iterations per derivation would dominate the suite; the
@@ -121,6 +123,58 @@ describe("envelope format", () => {
     for (const envelope of malformed) {
       await expect(decryptData(envelope, key, id)).rejects.toThrow();
     }
+  });
+});
+
+describe("padding", () => {
+  test("pads an empty payload to a 16-byte block with a zero header", () => {
+    const padded = padPlaintext(new Uint8Array(0));
+    expect(padded).toHaveLength(16);
+    expect(Array.from(padded)).toEqual(new Array(16).fill(0));
+  });
+
+  test("adds no padding when header + secret already lands on a 16-byte boundary", () => {
+    const padded = padPlaintext(new Uint8Array(12)); // 4-byte header + 12 = 16
+    expect(padded).toHaveLength(16);
+  });
+
+  test("pads up to the next boundary when 1 byte over", () => {
+    const padded = padPlaintext(new Uint8Array(13)); // 4-byte header + 13 = 17
+    expect(padded).toHaveLength(32);
+  });
+
+  test("round-trips arbitrary binary content", () => {
+    const original = crypto.getRandomValues(new Uint8Array(2500));
+    const unpadded = unpadPlaintext(padPlaintext(original));
+    expect(Array.from(unpadded)).toEqual(Array.from(original));
+  });
+
+  test("rejects a header claiming more bytes than remain", () => {
+    const bogus = new Uint8Array(16);
+    new DataView(bogus.buffer).setUint32(0, 1000, false);
+    expect(() => unpadPlaintext(bogus)).toThrow(/Malformed plaintext padding/);
+  });
+
+  test("rejects a buffer too short to hold the header", () => {
+    expect(() => unpadPlaintext(new Uint8Array(2))).toThrow(/Malformed plaintext padding/);
+  });
+
+  test("round-trips an empty secret end-to-end", async () => {
+    const id = generateSecretId();
+    const key = await generateRandomKey();
+    const { ciphertext } = await encryptData("", key, id);
+    expect(await decryptData(ciphertext, key, id)).toBe("");
+  });
+
+  test("round-trips a realistic SSH-key-sized secret", async () => {
+    const id = generateSecretId();
+    const key = await generateRandomKey();
+    const sshKey =
+      "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+      "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAB".repeat(60) +
+      "\n-----END OPENSSH PRIVATE KEY-----\n";
+    const { ciphertext } = await encryptData(sshKey, key, id);
+    expect(await decryptData(ciphertext, key, id)).toBe(sshKey);
   });
 });
 
