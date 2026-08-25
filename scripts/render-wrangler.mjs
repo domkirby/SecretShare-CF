@@ -25,7 +25,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -107,17 +107,49 @@ function setPath(root, path, value) {
   node[path.at(-1)] = value;
 }
 
+/**
+ * Parse the command line into { app, requireAll, outOverride }, or { error }.
+ *
+ * An explicit loop rather than index arithmetic over the whole argv: an earlier
+ * version skipped `--out`'s value by filtering on `i !== argv.indexOf("--out") + 1`,
+ * which silently dropped argv[0] — the app name — whenever `--out` was absent,
+ * breaking exactly the bare `render-wrangler.mjs api --require-all` form the
+ * deploy workflow uses. Exported so that form is directly testable.
+ */
+export function parseArgs(argv) {
+  let app;
+  let requireAll = false;
+  let outOverride;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--require-all") {
+      requireAll = true;
+    } else if (arg === "--out") {
+      outOverride = argv[++i];
+      if (outOverride === undefined) return { error: "--out requires a path" };
+    } else if (arg.startsWith("--")) {
+      return { error: `unknown option ${arg}` };
+    } else if (app !== undefined) {
+      return { error: `unexpected argument ${arg}` };
+    } else {
+      app = arg;
+    }
+  }
+
+  if (!Object.hasOwn(FIELDS, app ?? "")) {
+    return { error: `unknown app ${app ?? "(none given)"}` };
+  }
+  return { app, requireAll, outOverride };
+}
+
 function main(argv) {
-  const requireAll = argv.includes("--require-all");
+  const { app, requireAll, outOverride, error } = parseArgs(argv);
 
-  const outFlag = argv.indexOf("--out");
-  const outOverride = outFlag === -1 ? undefined : argv[outFlag + 1];
-  const positional = argv.filter((a, i) => !a.startsWith("--") && i !== outFlag + 1);
-  const app = positional[0];
-
-  if (!Object.hasOwn(FIELDS, app ?? "") || (outFlag !== -1 && !outOverride)) {
+  if (error) {
     console.error(
-      `usage: node scripts/render-wrangler.mjs <${Object.keys(FIELDS).join("|")}> [--require-all] [--out <path>]`
+      `render-wrangler: ${error}\n` +
+        `usage: node scripts/render-wrangler.mjs <${Object.keys(FIELDS).join("|")}> [--require-all] [--out <path>]`
     );
     process.exit(2);
   }
@@ -156,4 +188,7 @@ function main(argv) {
   for (const line of applied) console.log(`  ${line}`);
 }
 
-main(process.argv.slice(2));
+// Only run when executed directly, so the tests can import parseArgs.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2));
+}

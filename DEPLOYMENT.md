@@ -113,6 +113,19 @@ Repository → **Settings → Secrets and variables → Actions**.
 
 Unset optional variables fall back to the values in each app's `wrangler.jsonc.example`, so you only need to set what you actually want to change. See [`apps/api/README.md`](apps/api/README.md#configuration) for what each tuning variable bounds.
 
+### Checking your configuration before you merge
+
+The `Deploy configuration` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and fails if any of the required settings above are missing, listing all of them at once. It also catches half-configured Turnstile — enabled without a secret key or a site key, or `TURNSTILE_ENABLED` and `VITE_TURNSTILE_ENABLED` disagreeing — and then renders both configs with your real values using the same script the deploy uses, so it fails for the same reasons a deploy would. This is what turns "the deploy broke after merging" into a red check on the PR.
+
+It reads secrets only to test whether they are set: each is compared to `''` in the workflow expression, so the runner receives a boolean and no value is ever printed. Nothing in this job contacts Cloudflare.
+
+Two things worth knowing:
+
+- **It is skipped on pull requests from forks.** GitHub does not provide secrets to those runs, so the check would fail on secrets it was never given. If you've forked this repo, the check still runs on pull requests within your own fork, against your own secrets.
+- **It doesn't verify the values are *correct*** — only that they're present and self-consistent. A valid-but-wrong `D1_DATABASE_ID` still passes here and fails at deploy.
+
+Consider making it a required status check (Settings → Branches → branch protection) so a misconfigured merge is blocked rather than merely flagged.
+
 ## 5. First deploy, chicken-and-egg
 
 `ALLOWED_ORIGIN` and `VITE_API_BASE` each refer to the *other* app's deployed URL, which you don't know until something has deployed once. Two ways through it:
