@@ -4,7 +4,10 @@ name: CI
 # change is known to compile and pass its tests before it can be merged (and,
 # via the deploy workflow's own test steps, before it can reach Cloudflare).
 #
-# Needs no secrets: nothing here talks to Cloudflare.
+# The build and test jobs need no secrets — nothing in them talks to
+# Cloudflare. The `deploy-config` job does read the deployment secrets and
+# variables, but only to check whether they are set; it never prints a value
+# and never contacts Cloudflare either.
 
 on:
   pull_request:
@@ -30,6 +33,102 @@ jobs:
         with:
           node-version: 22
       - run: node --test scripts/render-wrangler.test.mjs
+
+  # Fails the PR when the deployment secrets/variables that deploy.yml needs are
+  # missing, so a misconfiguration surfaces before merge instead of as a red
+  # deploy on main afterwards. Reads secrets only to test them for emptiness —
+  # every value below is compared to '' in the expression, so what reaches the
+  # runner is the boolean, never the secret.
+  deploy-config:
+    name: Deploy configuration
+    # Secrets are not provided to workflows triggered by a pull request from a
+    # fork, so this can only run on PRs from branches in this repository —
+    # otherwise every fork PR would fail on secrets it was never given. A
+    # forker gets the same check on their own PRs, against their own secrets,
+    # in their own fork.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check required secrets and variables
+        env:
+          # Booleans, not values.
+          HAS_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          HAS_TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY != '' }}
+          D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+          ALLOWED_ORIGIN: ${{ vars.ALLOWED_ORIGIN }}
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          TURNSTILE_ENABLED: ${{ vars.TURNSTILE_ENABLED }}
+          VITE_TURNSTILE_ENABLED: ${{ vars.VITE_TURNSTILE_ENABLED }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+        run: |
+          set -uo pipefail
+          problems=0
+
+          # Report everything that is wrong in one run — fixing these means
+          # visiting the repository settings, so a list beats one-at-a-time.
+          fail() { echo "::error::$1"; problems=$((problems + 1)); }
+
+          need_secret() {
+            [ "$2" = "true" ] || fail "Missing repository secret $1. See DEPLOYMENT.md."
+          }
+          need_var() {
+            [ -n "$2" ] || fail "Missing repository variable $1. See DEPLOYMENT.md."
+          }
+
+          need_secret CLOUDFLARE_API_TOKEN "$HAS_CLOUDFLARE_API_TOKEN"
+          need_secret CLOUDFLARE_ACCOUNT_ID "$HAS_CLOUDFLARE_ACCOUNT_ID"
+
+          need_var D1_DATABASE_NAME "$D1_DATABASE_NAME"
+          need_var D1_DATABASE_ID "$D1_DATABASE_ID"
+          need_var ALLOWED_ORIGIN "$ALLOWED_ORIGIN"
+          # Not covered by render-wrangler: the frontend build reads it directly.
+          need_var VITE_API_BASE "$VITE_API_BASE"
+
+          # Turnstile is optional, but half-configured Turnstile is a broken
+          # deploy: the API fails closed when enabled without a secret key, and
+          # a front/back mismatch means either a pointless widget or requests
+          # the API rejects.
+          if [ "${TURNSTILE_ENABLED:-}" = "true" ]; then
+            [ "$HAS_TURNSTILE_SECRET_KEY" = "true" ] \
+              || fail "TURNSTILE_ENABLED is true but the TURNSTILE_SECRET_KEY secret is unset — the API would reject every request."
+            [ -n "${VITE_TURNSTILE_SITE_KEY:-}" ] \
+              || fail "TURNSTILE_ENABLED is true but VITE_TURNSTILE_SITE_KEY is unset — the frontend cannot render the widget."
+          fi
+          if [ "${TURNSTILE_ENABLED:-false}" != "${VITE_TURNSTILE_ENABLED:-false}" ]; then
+            fail "TURNSTILE_ENABLED (${TURNSTILE_ENABLED:-unset}) and VITE_TURNSTILE_ENABLED (${VITE_TURNSTILE_ENABLED:-unset}) disagree; they must match."
+          fi
+
+          if [ "$problems" -gt 0 ]; then
+            echo "::error::$problems deployment setting(s) missing or inconsistent — deploy.yml would fail on main. Set them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "All required deployment secrets and variables are set."
+
+      # Runs the real renderer against the real values, so this fails for the
+      # same reasons deploy.yml would rather than by reimplementing its rules.
+      - name: Render both configs with the live values
+        env:
+          CF_WORKER_NAME_API: ${{ vars.CF_WORKER_NAME_API }}
+          CF_WORKER_NAME_FRONTEND: ${{ vars.CF_WORKER_NAME_FRONTEND }}
+          D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+          ALLOWED_ORIGIN: ${{ vars.ALLOWED_ORIGIN }}
+          TURNSTILE_ENABLED: ${{ vars.TURNSTILE_ENABLED }}
+          MAX_SECRET_BYTES: ${{ vars.MAX_SECRET_BYTES }}
+          DEFAULT_TTL_MINUTES: ${{ vars.DEFAULT_TTL_MINUTES }}
+          MAX_TTL_MINUTES: ${{ vars.MAX_TTL_MINUTES }}
+          MAX_VIEWS_CAP: ${{ vars.MAX_VIEWS_CAP }}
+          FAILED_ATTEMPTS_CAP: ${{ vars.FAILED_ATTEMPTS_CAP }}
+        run: |
+          node scripts/render-wrangler.mjs api --require-all
+          node scripts/render-wrangler.mjs frontend --require-all
 
   api:
     name: API
