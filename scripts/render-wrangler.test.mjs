@@ -2,18 +2,24 @@
  * Tests for render-wrangler.mjs — run with `node --test scripts/`.
  *
  * Uses only node:test / node:assert, so this suite needs no install step and
- * no dependencies. It drives the script as a subprocess, the same way CI does,
- * and writes to a temp directory rather than apps/<app>/wrangler.jsonc so it
- * can't clobber a developer's local config.
+ * no dependencies. Most tests drive the script as a subprocess writing to a
+ * temp directory, so they can't clobber a developer's local
+ * apps/<app>/wrangler.jsonc — but note that isolation is itself a hazard: it
+ * means the common `render()` helper always passes `--out`, so it does NOT
+ * exercise the bare command line the deploy workflow uses. See the
+ * "argument parsing" and "deploy workflow invocation" blocks below, which
+ * cover that form directly.
  */
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { parseArgs } from "./render-wrangler.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const script = join(repoRoot, "scripts", "render-wrangler.mjs");
@@ -266,5 +272,96 @@ describe("argument handling", () => {
     const { stdout } = render("api", { ALLOWED_ORIGIN: sentinel });
     assert.match(stdout, /ALLOWED_ORIGIN -> vars\.ALLOWED_ORIGIN/);
     assert.ok(!stdout.includes(sentinel), "the log should name fields, not echo their values");
+  });
+});
+
+describe("argument parsing", () => {
+  // Regression: the deploy workflow runs the script with no --out, and an
+  // earlier index-arithmetic parser dropped argv[0] in exactly that case,
+  // failing every deploy with a usage banner. The suite missed it because
+  // render() above always passes --out.
+  test("the deploy workflow's own invocation parses", () => {
+    assert.deepEqual(parseArgs(["api", "--require-all"]), {
+      app: "api",
+      requireAll: true,
+      outOverride: undefined,
+    });
+    assert.deepEqual(parseArgs(["frontend", "--require-all"]), {
+      app: "frontend",
+      requireAll: true,
+      outOverride: undefined,
+    });
+  });
+
+  test("the app alone parses", () => {
+    for (const app of ["api", "frontend"]) {
+      assert.deepEqual(parseArgs([app]), { app, requireAll: false, outOverride: undefined });
+    }
+  });
+
+  test("--out is picked up, and its value is not mistaken for the app", () => {
+    assert.deepEqual(parseArgs(["api", "--out", "/tmp/x.jsonc"]), {
+      app: "api",
+      requireAll: false,
+      outOverride: "/tmp/x.jsonc",
+    });
+  });
+
+  test("flags parse in any order", () => {
+    const expected = { app: "api", requireAll: true, outOverride: "/tmp/x.jsonc" };
+    assert.deepEqual(parseArgs(["api", "--out", "/tmp/x.jsonc", "--require-all"]), expected);
+    assert.deepEqual(parseArgs(["api", "--require-all", "--out", "/tmp/x.jsonc"]), expected);
+    assert.deepEqual(parseArgs(["--require-all", "--out", "/tmp/x.jsonc", "api"]), expected);
+  });
+
+  test("an app named like a flag value is still rejected", () => {
+    // "--out api" consumes api as the path, leaving no app.
+    assert.match(parseArgs(["--out", "api"]).error, /unknown app/);
+  });
+
+  test("rejects bad input", () => {
+    assert.match(parseArgs([]).error, /unknown app/);
+    assert.match(parseArgs(["nope"]).error, /unknown app nope/);
+    assert.match(parseArgs(["api", "--out"]).error, /--out requires a path/);
+    assert.match(parseArgs(["api", "--bogus"]).error, /unknown option --bogus/);
+    assert.match(parseArgs(["api", "frontend"]).error, /unexpected argument frontend/);
+  });
+});
+
+describe("deploy workflow invocation", () => {
+  // End-to-end coverage of the exact command .github/workflows/deploy.yml runs,
+  // with no --out, writing to the default apps/<app>/wrangler.jsonc. The unit
+  // tests above only prove the parser agrees with itself; this proves the real
+  // command line works. Any pre-existing local config is restored afterwards.
+  function runDefaultOutput(app, env) {
+    const target = join(repoRoot, "apps", app, "wrangler.jsonc");
+    const had = existsSync(target);
+    const previous = had ? readFileSync(target, "utf8") : undefined;
+    try {
+      const stdout = execFileSync(process.execPath, [script, app, "--require-all"], {
+        env: { PATH: process.env.PATH, ...env },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { stdout, config: JSON.parse(readFileSync(target, "utf8")) };
+    } finally {
+      if (had) writeFileSync(target, previous);
+      else rmSync(target, { force: true });
+    }
+  }
+
+  test("api renders to the default path", () => {
+    const { config } = runDefaultOutput("api", {
+      D1_DATABASE_NAME: "my-db",
+      D1_DATABASE_ID: "11111111-2222-3333-4444-555555555555",
+      ALLOWED_ORIGIN: "https://secret.example.com",
+    });
+    assert.equal(config.d1_databases[0].database_name, "my-db");
+    assert.equal(config.vars.ALLOWED_ORIGIN, "https://secret.example.com");
+  });
+
+  test("frontend renders to the default path", () => {
+    const { config } = runDefaultOutput("frontend", {});
+    assert.equal(config.assets.directory, "./dist");
   });
 });
