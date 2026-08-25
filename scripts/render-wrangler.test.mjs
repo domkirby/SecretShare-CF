@@ -259,11 +259,12 @@ describe("argument handling", () => {
   });
 
   test("logs which field each variable set, without printing values", () => {
-    const { stdout } = render("api", { ALLOWED_ORIGIN: "https://secret.example.com" });
+    // A non-URL sentinel: this asserts the value isn't echoed, and a URL-shaped
+    // literal in an .includes() check trips CodeQL's incomplete-url-substring-
+    // sanitization rule for no benefit — nothing here validates a URL.
+    const sentinel = "sentinel-value-must-not-be-logged";
+    const { stdout } = render("api", { ALLOWED_ORIGIN: sentinel });
     assert.match(stdout, /ALLOWED_ORIGIN -> vars\.ALLOWED_ORIGIN/);
-    assert.ok(
-      !stdout.includes("https://secret.example.com"),
-      "the log should name fields, not echo their values"
-    );
+    assert.ok(!stdout.includes(sentinel), "the log should name fields, not echo their values");
   });
 });
