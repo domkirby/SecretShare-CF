@@ -8,6 +8,9 @@ import {
   deriveKeyAndVerifier,
   encryptData,
   exportKeyBase64Url,
+  generateFragmentSecret,
+  fragmentSecretToBase64Url,
+  isValidFragmentSecret,
   generateRandomKey,
   generateSalt,
   generateSecretId,
@@ -22,6 +25,7 @@ import {
 // Real PBKDF2 at 600k iterations per derivation would dominate the suite; the
 // iteration count is a parameter, so exercise the derivation logic cheaply.
 const TEST_ITERATIONS = MIN_PBKDF2_ITERATIONS;
+const R = () => generateFragmentSecret();
 
 describe("random-key mode", () => {
   test("round-trips a secret", async () => {
@@ -179,10 +183,11 @@ describe("padding", () => {
 });
 
 describe("password mode", () => {
-  test("the same password and salt re-derive the same key and verifier", async () => {
+  test("the same password, salt and R re-derive the same key and verifier", async () => {
     const salt = generateSalt();
-    const a = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS);
-    const b = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS);
+    const r = R();
+    const a = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS, r);
+    const b = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS, r);
     expect(a.verifier).toBe(b.verifier);
 
     // And the keys actually interoperate, not just the verifiers.
@@ -191,31 +196,67 @@ describe("password mode", () => {
     expect(await decryptData(ciphertext, b.key, id)).toBe("secret");
   });
 
+  test("decryption needs both the password and R", async () => {
+    const salt = generateSalt();
+    const id = generateSecretId();
+    const enc = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS, R());
+    const { ciphertext } = await encryptData("secret", enc.key, id);
+
+    // Right password, wrong R (e.g. a leaked DB but not the link).
+    const wrongR = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS, R());
+    await expect(decryptData(ciphertext, wrongR.key, id)).rejects.toThrow();
+  });
+
+  test("the verifier does not depend on R", async () => {
+    // R lives only in the fragment; the server-side check must work without it.
+    const salt = generateSalt();
+    const a = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS, R());
+    const b = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS, R());
+    expect(a.verifier).toBe(b.verifier);
+  });
+
+  test("rejects a fragment secret that isn't 32 bytes", async () => {
+    await expect(
+      deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS, new Uint8Array(16))
+    ).rejects.toThrow(/fragment secret/i);
+  });
+
   test("a wrong password produces a different verifier", async () => {
     const salt = generateSalt();
-    const right = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS);
-    const wrong = await deriveKeyAndVerifier("correct horsé", salt, TEST_ITERATIONS);
+    const r = R();
+    const right = await deriveKeyAndVerifier("correct horse", salt, TEST_ITERATIONS, r);
+    const wrong = await deriveKeyAndVerifier("correct horsé", salt, TEST_ITERATIONS, r);
     expect(wrong.verifier).not.toBe(right.verifier);
   });
 
   test("a different salt produces a different verifier for the same password", async () => {
-    const a = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS);
-    const b = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS);
+    const a = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS, R());
+    const b = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS, R());
     expect(a.verifier).not.toBe(b.verifier);
   });
 
   test("a different iteration count produces a different verifier", async () => {
     const salt = generateSalt();
-    const a = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS);
-    const b = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS + 1);
+    const r = R();
+    const a = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS, r);
+    const b = await deriveKeyAndVerifier("pw", salt, TEST_ITERATIONS + 1, r);
     expect(a.verifier).not.toBe(b.verifier);
   });
 
   test("the verifier is not the key material", async () => {
     // The verifier goes to the server; the key must not be recoverable from it.
-    const { key, verifier } = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS);
+    const { key, verifier } = await deriveKeyAndVerifier("pw", generateSalt(), TEST_ITERATIONS, R());
     expect(key.extractable).toBe(false);
     expect(atob(verifier)).toHaveLength(32);
+  });
+
+  test("R round-trips base64url and matches the exported-key shape", () => {
+    const r = generateFragmentSecret();
+    expect(r).toHaveLength(32);
+    const encoded = fragmentSecretToBase64Url(r);
+    expect(encoded).toHaveLength(43);
+    expect(isValidFragmentSecret(encoded)).toBe(true);
+    expect(encoded).not.toMatch(/[+/=]/);
   });
 
   test("salt survives the base64 round-trip the API does", async () => {

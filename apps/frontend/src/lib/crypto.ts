@@ -58,10 +58,16 @@ export const MIN_PBKDF2_ITERATIONS = 100_000;
 export const MAX_PBKDF2_ITERATIONS = 2_000_000;
 
 const ENVELOPE_VERSION = "v1";
-const HKDF_INFO_ENC = "secretshare:v1:enc";
+// v2: the encryption key is expanded from PBKDF2 output *concatenated with* the
+// 32-byte fragment secret R, not from the PBKDF2 output alone (see
+// deriveKeyAndVerifier). The verify label stays v1 — that derivation is
+// unchanged.
+const HKDF_INFO_ENC = "secretshare:v2:enc";
 const HKDF_INFO_VERIFY = "secretshare:v1:verify";
-// 32 key bytes as unpadded base64url — always exactly 43 chars.
+// 32 key bytes as unpadded base64url — always exactly 43 chars. Also the shape
+// of the password-mode fragment secret R.
 const KEY_BASE64URL_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const FRAGMENT_SECRET_BYTES = 32;
 
 export async function generateRandomKey(): Promise<CryptoKey> {
   return crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
@@ -94,6 +100,30 @@ export function generateSalt(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(16));
 }
 
+/**
+ * Password-mode fragment secret `R`: 32 random bytes carried only in the share
+ * link's URL fragment (never sent to the server) and mixed into the encryption
+ * key derivation. Decryption needs both the password and this value.
+ */
+export function generateFragmentSecret(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(FRAGMENT_SECRET_BYTES));
+}
+
+export function fragmentSecretToBase64Url(r: Uint8Array): string {
+  return bufToBase64Url(r);
+}
+
+export function base64UrlToFragmentSecret(s: string): Uint8Array {
+  const r = base64UrlToBuf(s);
+  if (r.length !== FRAGMENT_SECRET_BYTES) {
+    throw new Error("Invalid fragment secret");
+  }
+  return r;
+}
+
+/** Same shape as an exported random-mode key: 43 unpadded base64url chars. */
+export const isValidFragmentSecret = isValidKeyBase64Url;
+
 export function saltToBase64(salt: Uint8Array): string {
   return bufToBase64(salt);
 }
@@ -108,20 +138,33 @@ export function generateSecretId(): string {
 }
 
 /**
- * One PBKDF2-SHA256 block (256 bits — asking for more would cost the full
- * iteration count per extra block, while an attacker cracking the verifier
- * only ever needs one) as a master secret, then HKDF-Expand — two HMACs,
- * free next to the PBKDF2 — into the AES key and the server-checkable
- * verifier under distinct info labels. The client pays exactly what an
- * attacker pays per guess, and the verifier can't be turned back into the
- * key. Empty HKDF salt is fine: the master is already uniform, so this is
- * expand-only usage per RFC 5869.
+ * Hybrid (1Password-style) derivation. One PBKDF2-SHA256 block (256 bits —
+ * asking for more would cost the full iteration count per extra block, while an
+ * attacker cracking the verifier only ever needs one) is the password-derived
+ * key `pdk`.
+ *
+ * - **Verifier** = HKDF-Expand(pdk, info="…:v1:verify"). Depends on the password
+ *   only, so the server can check a password without learning the key. Mixing
+ *   `R` in here would gain nothing and would stop the server-side check from
+ *   working, so it is deliberately `pdk`-only and unchanged from v1.
+ * - **Encryption key** = HKDF-Expand(pdk ‖ R, info="…:v2:enc"), where `R` is the
+ *   32-byte {@link generateFragmentSecret} value that lives only in the URL
+ *   fragment. Decryption needs both the password (for `pdk`) and the link (for
+ *   `R`): a server/D1 leak alone yields the salt and verifier but not `R`, so a
+ *   weak password can no longer be brute-forced down to plaintext.
+ *
+ * Empty HKDF salt is fine: the inputs are already uniform, so this is
+ * expand-only usage per RFC 5869. The two HMACs are free next to the PBKDF2.
  */
 export async function deriveKeyAndVerifier(
   password: string,
   salt: Uint8Array,
-  iterations: number
+  iterations: number,
+  fragmentSecret: Uint8Array
 ): Promise<{ key: CryptoKey; verifier: string }> {
+  if (fragmentSecret.length !== FRAGMENT_SECRET_BYTES) {
+    throw new Error("Invalid fragment secret");
+  }
   const passwordKey = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
@@ -129,14 +172,18 @@ export async function deriveKeyAndVerifier(
     false,
     ["deriveBits"]
   );
-  const master = await crypto.subtle.deriveBits(
+  const pdkBits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
     passwordKey,
     256
   );
-  const hkdfKey = await crypto.subtle.importKey("raw", master, "HKDF", false, [
+  const pdk = new Uint8Array(pdkBits);
+
+  const encIkm = new Uint8Array(pdk.length + fragmentSecret.length);
+  encIkm.set(pdk, 0);
+  encIkm.set(fragmentSecret, pdk.length);
+  const encHkdfKey = await crypto.subtle.importKey("raw", encIkm as BufferSource, "HKDF", false, [
     "deriveKey",
-    "deriveBits",
   ]);
   const key = await crypto.subtle.deriveKey(
     {
@@ -145,11 +192,15 @@ export async function deriveKeyAndVerifier(
       salt: new Uint8Array(0),
       info: new TextEncoder().encode(HKDF_INFO_ENC),
     },
-    hkdfKey,
+    encHkdfKey,
     { name: "AES-GCM", length: 256 },
     false,
     ["encrypt", "decrypt"]
   );
+
+  const verifyHkdfKey = await crypto.subtle.importKey("raw", pdk as BufferSource, "HKDF", false, [
+    "deriveBits",
+  ]);
   const verifierBits = await crypto.subtle.deriveBits(
     {
       name: "HKDF",
@@ -157,7 +208,7 @@ export async function deriveKeyAndVerifier(
       salt: new Uint8Array(0),
       info: new TextEncoder().encode(HKDF_INFO_VERIFY),
     },
-    hkdfKey,
+    verifyHkdfKey,
     256
   );
   return { key, verifier: bufToBase64(new Uint8Array(verifierBits)) };

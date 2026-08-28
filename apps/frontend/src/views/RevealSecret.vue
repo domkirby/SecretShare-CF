@@ -12,6 +12,7 @@ import {
   isValidKeyBase64Url,
   decryptData,
   deriveKeyAndVerifier,
+  base64UrlToFragmentSecret,
   base64ToSalt,
   MIN_PBKDF2_ITERATIONS,
   MAX_PBKDF2_ITERATIONS,
@@ -64,8 +65,11 @@ onMounted(async () => {
         errorMessage.value = "This secret's key parameters are invalid.";
         return;
       }
-    } else if (!isValidKeyBase64Url(fragmentKey)) {
-      // Checked up front so a mangled fragment fails here, before a view is spent.
+    }
+    // Both modes carry a value in the fragment: the AES key (random mode) or the
+    // 32-byte secret R mixed into the derived key (password mode). Either way a
+    // mangled/absent fragment can't decrypt, so fail here before a view is spent.
+    if (!isValidKeyBase64Url(fragmentKey)) {
       state.value = "error";
       errorMessage.value = "This link is missing or has a corrupted decryption key.";
       return;
@@ -91,7 +95,8 @@ async function handleReveal() {
       const derived = await deriveKeyAndVerifier(
         password.value,
         base64ToSalt(passwordKdf.value.salt),
-        passwordKdf.value.iterations
+        passwordKdf.value.iterations,
+        base64UrlToFragmentSecret(fragmentKey)
       );
       derivedKey = derived.key;
       verifier = derived.verifier;
