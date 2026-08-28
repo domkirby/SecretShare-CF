@@ -10,6 +10,11 @@ the logic described here lives in `apps/frontend/src/lib/crypto.ts`.
 - The server operator, and anyone who can observe traffic to/from it, can see
   ciphertext, its length, timing, and metadata (secret id, expiry, etc.) —
   but not plaintext, keys, or passwords.
+- A full server/D1 leak yields the salt, iteration count, and verifier for a
+  password secret, but **not** the fragment secret `R` (it lives only in the
+  URL fragment). Without `R` the encryption key can't be assembled even from a
+  correctly guessed password, so an offline brute-force of a weak password
+  recovers the verifier, not the plaintext.
 - Ciphertext length does **not** reveal the exact byte length of the
   original secret (see "Length-hiding padding" below). It does not hide the
   secret's *category* (e.g. "this looks like an SSH key vs. a password") —
@@ -31,22 +36,29 @@ never sent to the server.
 
 ### Password mode
 
-`deriveKeyAndVerifier(password, salt, iterations)` derives both the
-encryption key and a server-checkable verifier from a user-supplied
-password:
+`deriveKeyAndVerifier(password, salt, iterations, fragmentSecret)` derives
+both the encryption key and a server-checkable verifier from a user-supplied
+password plus a random value carried in the link. This is a hybrid
+(1Password-style) scheme: decryption requires **both** the password and the
+link.
 
 1. PBKDF2-SHA256 over the password, with a 16-byte random salt
    (`generateSalt`) and `PBKDF2_ITERATIONS` (600,000) iterations, produces a
-   256-bit master secret. One block is enough — an attacker cracking the
-   password pays the same per-guess cost regardless of how many blocks are
-   derived.
-2. The master secret is expanded via HKDF (empty salt, since the master is
-   already uniform — expand-only usage per RFC 5869) under two distinct info
-   labels into:
-   - the AES-256-GCM encryption key (`HKDF_INFO_ENC`), which never leaves
-     the browser, and
-   - a verifier (`HKDF_INFO_VERIFY`), a value the server can store and check
-     against on reveal without being able to turn it back into the key.
+   256-bit password-derived key `pdk`. One block is enough — an attacker
+   cracking the password pays the same per-guess cost regardless of how many
+   blocks are derived.
+2. `generateFragmentSecret()` produces `R`, 32 random bytes that are appended
+   to the share link's URL fragment (like a random-mode key) and never sent
+   to the server.
+3. Two HKDF expansions (empty salt, since the inputs are already uniform —
+   expand-only usage per RFC 5869):
+   - the AES-256-GCM encryption key = `HKDF-Expand(pdk ‖ R,
+     info="secretshare:v2:enc")`, which never leaves the browser. Both `pdk`
+     and `R` are required to reconstruct it.
+   - a verifier = `HKDF-Expand(pdk, info="secretshare:v1:verify")` — `pdk`
+     only. The server can store and check it on reveal without being able to
+     turn it back into the key, and mixing `R` in would only break that
+     check. Unchanged from v1.
 
 The server-supplied iteration count on reveal is validated against
 `MIN_PBKDF2_ITERATIONS`/`MAX_PBKDF2_ITERATIONS` before use, since it round-trips

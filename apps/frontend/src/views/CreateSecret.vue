@@ -13,6 +13,8 @@ import {
   exportKeyBase64Url,
   generateSalt,
   saltToBase64,
+  generateFragmentSecret,
+  fragmentSecretToBase64Url,
   deriveKeyAndVerifier,
   generateSecretId,
   generateSecurePassword,
@@ -102,9 +104,18 @@ async function handleSubmit() {
 
     if (mode.value === "password") {
       const salt = generateSalt();
-      const { key, verifier } = await deriveKeyAndVerifier(password.value, salt, PBKDF2_ITERATIONS);
+      // R lives only in the URL fragment; the server stores salt/iterations/
+      // verifier but never R, so a leak of those alone can't recover the key.
+      const r = generateFragmentSecret();
+      const { key, verifier } = await deriveKeyAndVerifier(
+        password.value,
+        salt,
+        PBKDF2_ITERATIONS,
+        r
+      );
       ({ ciphertext } = await encryptData(secretText.value, key, id));
       kdf = { salt: saltToBase64(salt), iterations: PBKDF2_ITERATIONS, verifier };
+      fragmentKey = fragmentSecretToBase64Url(r);
     } else {
       const key = await generateRandomKey();
       ({ ciphertext } = await encryptData(secretText.value, key, id));

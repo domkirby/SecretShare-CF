@@ -35,8 +35,9 @@
         Encryption and decryption both happen in your browser, never on the server. In random-link mode, the
         decryption key lives only in the link itself, after the <code>#</code> — browsers never send that
         part of a URL over the network, so it never reaches any server at all. In password mode, the
-        password never leaves your browser either; the server only ever stores an encrypted blob it has no
-        way to read.
+        link carries a random value that is combined with your password to unlock the secret — you need
+        both, and the password never leaves your browser. Either way the server only ever stores an
+        encrypted blob it has no way to read.
       </p>
       <p>That also means: if you lose the link (or the password), nobody — including us — can recover it.</p>
 
