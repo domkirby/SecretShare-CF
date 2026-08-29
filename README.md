@@ -2,7 +2,7 @@
 
 A zero-knowledge, self-destructing secret sharing tool, built natively for Cloudflare. This is a from-scratch rewrite of [domkirby/SecretShare](https://github.com/domkirby/SecretShare) (originally PHP/MySQL) targeting Cloudflare Workers + D1 instead.
 
-The server never sees plaintext, and in random-key mode it never sees the encryption key either — encryption/decryption happen entirely in the browser via WebCrypto, and the key is passed around as a URL fragment (`#...`), which browsers never send over the network.
+The server never sees plaintext, and it never sees the encryption key or the key material needed to rebuild it — encryption/decryption happen entirely in the browser via WebCrypto, and the secret carried in the share link lives in a URL fragment (`#...`), which browsers never send over the network.
 
 ## Architecture
 
@@ -26,8 +26,11 @@ Each app is a standalone npm package (not an npm workspace) — see each app's o
 ## Crypto model (short version)
 
 - **Random-key mode** (default): a random AES-256-GCM key is generated in the browser, used to encrypt the secret, then base64url-encoded (43 chars) and appended to the share link as a URL fragment (`https://.../s/{id}#{key}`). The fragment never leaves the browser — it's not sent in HTTP requests and isn't logged by servers or proxies.
-- **Password mode**: a PBKDF2-HMAC-SHA-256 (600,000 iterations, one output block — so the user pays exactly the same per-guess cost an offline attacker pays) derivation from a password the recipient already knows out-of-band, then a cheap HKDF-SHA256 expansion of that master secret into two values under distinct labels: the AES-256-GCM key (never transmitted) and the "verifier" the server stores. The verifier lets the server confirm a password is correct *before* a view is consumed — so a typo doesn't burn the secret's one-time view — while remaining impossible to turn back into the encryption key. The salt and iteration count are not secret and are stored server-side; the client rejects server-supplied iteration counts outside 100,000–2,000,000.
-- The server only ever stores/serves an opaque `v1:ivBase64:ciphertextBase64` envelope — it cannot decrypt it under either mode. The secret's ID is generated in the browser *before* encryption and bound into the ciphertext as AES-GCM additional authenticated data (AAD), so the server can't swap ciphertexts between records without decryption failing.
+- **Password mode**: a hybrid (1Password-style) scheme — decryption needs **both** the password and the link. A PBKDF2-HMAC-SHA-256 (600,000 iterations, one output block — so the user pays exactly the same per-guess cost an offline attacker pays) derivation from a password the recipient already knows out-of-band produces `pdk`, and 32 random bytes `R` are generated in the browser and carried in the link's URL fragment. Two cheap HKDF-SHA256 expansions under distinct labels then produce the AES-256-GCM key from `pdk ‖ R` (never transmitted, and unassemblable without the link) and the "verifier" the server stores from `pdk` alone. The verifier lets the server confirm a password is correct *before* a view is consumed — so a typo doesn't burn the secret's one-time view — while remaining impossible to turn back into the encryption key. Because `R` never reaches the server, a full server leak plus a cracked weak password still doesn't recover the plaintext. The salt and iteration count are not secret and are stored server-side; the client rejects server-supplied iteration counts outside 100,000–2,000,000.
+- **Length-hiding padding**: AES-GCM ciphertext is exactly as long as its plaintext, so before encryption the secret is prefixed with a 4-byte big-endian length header and zero-padded up to the next 16-byte boundary; decryption reads the header back and returns exactly that many bytes. This hides the secret's exact byte length (to 16-byte granularity) but not its category — fixed-size bucket tiers are a deliberate non-goal for now.
+- The server only ever stores/serves an opaque `v1:ivBase64:ciphertextBase64` envelope (fresh 12-byte random IV per encryption) — it cannot decrypt it under either mode. The secret's ID is generated in the browser *before* encryption and bound into the ciphertext as AES-GCM additional authenticated data (AAD), so the server can't swap ciphertexts between records without decryption failing.
+
+Full details — threat model, key derivation, envelope format, and padding — are in [`CRYPTO.md`](CRYPTO.md).
 
 ## Deploying
 
@@ -60,7 +63,7 @@ Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml): 
 
 ```bash
 cd apps/api      && npm test    # timing-safe compare, verifier hashing
-cd apps/frontend && npm test    # AES-GCM round-trip, AAD binding, envelope parsing, PBKDF2/HKDF derivation
+cd apps/frontend && npm test    # AES-GCM round-trip, AAD binding, envelope parsing, PBKDF2/HKDF derivation, pad/unpad
 node --test scripts/render-wrangler.test.mjs   # deploy config rendering (no install needed)
 ```
 
