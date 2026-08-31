@@ -1,0 +1,17 @@
+{
+  // The header Worker is typechecked separately from the Vue app: it runs on
+  // workerd, not in the browser, so it needs the Workers globals and must not
+  // pick up the app's DOM/vite/client types (nor the app this one).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["./**/*.ts"]
+}

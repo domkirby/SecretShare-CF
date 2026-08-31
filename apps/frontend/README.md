@@ -36,9 +36,9 @@ Starts Vite on `http://localhost:5173`. Make sure `apps/api` is also running (se
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run build` | Type-checks (`vue-tsc -b`) then builds to `dist/` |
-| `npm test` | `vitest run` — unit tests for `src/lib/crypto.ts` |
+| `npm test` | `vitest run` — unit tests for `src/lib/crypto.ts`, `src/lib/api.ts` and `worker/headers.ts` |
 | `npm run preview` | Serves the production build locally |
-| `npm run typecheck` | `vue-tsc --noEmit` |
+| `npm run typecheck` | `vue-tsc --noEmit` for the app, then `tsc` for the `worker/` Worker (which needs the Workers globals, not the DOM ones) |
 
 ## Configuration
 
@@ -49,6 +49,8 @@ Config is a handful of Vite env vars, read at **build time** and exposed as `imp
 | `VITE_API_BASE` | Base URL of the `apps/api` Worker — no trailing slash, no `/api` suffix (that's added per-call). | `http://localhost:8787` (dev) / `https://secretshare-api.<you>.workers.dev` or a custom domain (prod) |
 | `VITE_TURNSTILE_ENABLED` | `"true"`/`"false"`. Mounts the Turnstile widget on both the create form and the reveal form, blocking submit until it's solved. Must match the API's `TURNSTILE_ENABLED` — the backend re-verifies independently regardless, but a mismatch means either an unnecessary widget or requests the API will reject. | `false` |
 | `VITE_TURNSTILE_SITE_KEY` | The Turnstile **site key** (public, safe to ship in client JS) for your Cloudflare Turnstile widget. Only read when `VITE_TURNSTILE_ENABLED` is `true`. | `0x4AAAAAAA...` |
+
+One value is **not** a build var: `API_ORIGIN`, a runtime var on the Worker described below. It is rendered into `wrangler.jsonc` from the same `VITE_API_BASE`, so there is still only one thing to configure.
 
 Copy `.env.example` to `.env.local` for local dev. For deploys, these are set as **GitHub repository variables** and passed to the build step by `.github/workflows/deploy.yml` (see [`../../DEPLOYMENT.md`](../../DEPLOYMENT.md)) — Vite bakes them into the built JS, so they must be set before the build runs, not read at request time.
 
@@ -97,6 +99,23 @@ Thin typed wrapper around the API endpoints (`createSecret`, `probeSecret`, `rev
 Both `CreateSecret.vue` and `RevealSecret.vue` only ever need one token per submission — creating a secret and revealing one (password-protected or not) are each a single API call now, so both views just hold the current token in a ref, use it directly on submit, and reset the widget (`widget.reset()`) after any failed attempt, since a token is single-use. There's no token queue: that only mattered back when revealing a password-protected secret meant two back-to-back protected calls (a separate password-check before reveal), which has since been merged into one.
 
 This is a **UX gate only** — the actual security boundary is the API's own `siteverify` call (see [`apps/api/README.md`](../api/README.md)), which always re-checks the token server-side regardless of what the frontend does.
+
+## Security headers
+
+`dist/` is served by a small Worker (`worker/index.ts`) rather than by Workers Static Assets alone, for one reason: assets-only projects cannot set response headers, and this app needs a strict Content-Security-Policy. A secret's decryption key lives in the URL fragment and never leaves the browser, so any script that runs on this origin can read it — the CSP is what keeps that set to scripts we shipped.
+
+`worker/headers.ts` builds the policy. It allows exactly three sources:
+
+- **this origin** — the bundle, its CSS, the primeicons font, and zxcvbn's dynamically imported chunks;
+- **`https://challenges.cloudflare.com`** — the Turnstile script (`script-src`) and its challenge iframe (`frame-src`);
+- **`API_ORIGIN`** in `connect-src` — the API is a separate Worker on a different host (`shareapi.example.com` next to `share.example.com`, or two `*.workers.dev` names), so `'self'` alone would block every API call. The configured value is reduced to a bare origin, and dropped if it is unparseable or already this origin.
+
+Everything else is `'none'`: no `unsafe-inline`, no `unsafe-eval`, no framing (`frame-ancestors 'none'`), no form posts. Alongside it the Worker sets `X-Content-Type-Options`, `Referrer-Policy: no-referrer` (secret ids appear in the path), `X-Frame-Options`, `Permissions-Policy`, and the two `Cross-Origin-*` headers. It does **not** set HSTS — that pins the whole domain and belongs in the zone's settings.
+
+Two things follow from this that are easy to trip over:
+
+- **Runtime-injected styles need the nonce.** `style-src` admits a per-response nonce and nothing else inline. The Worker injects `<meta name="csp-nonce">` into `<head>`; `src/lib/cspNonce.ts` reads it, `main.ts` hands it to PrimeVue (whose theme preset is injected as a `<style>` element), and `TurnstileWidget.vue` sets it on the Turnstile script tag, from which Turnstile copies it onto the styles it injects. Anything else that creates a `<style>` at runtime has to do the same.
+- **`npm run dev` does not exercise any of this.** Vite serves `index.html` directly with no Worker in front of it, so there is no CSP and no nonce. To check the policy, build and serve through Wrangler: `npm run build && npx wrangler dev` (copy `wrangler.jsonc.example` to `wrangler.jsonc` first), then watch the browser console for violations.
 
 ## UI
 

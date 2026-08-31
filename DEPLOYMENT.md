@@ -99,7 +99,7 @@ Repository → **Settings → Secrets and variables → Actions**.
 | `D1_DATABASE_NAME` | yes | Name of the D1 database from step 2, e.g. `secretshare-db`. |
 | `D1_DATABASE_ID` | yes | UUID of the D1 database from step 2. Not a secret — it's inert hex without an API token or dashboard access — it just can't be committed, since it differs per deployment. |
 | `ALLOWED_ORIGIN` | yes | Comma-separated CORS allowlist for the API. Must contain every origin the frontend is served from, e.g. `https://secret.example.com`. No trailing slash. |
-| `VITE_API_BASE` | yes | Base URL of the deployed API Worker, e.g. `https://secretshare-api.<subdomain>.workers.dev` or your custom domain. No trailing slash, no `/api` suffix. Baked into the frontend bundle at build time. |
+| `VITE_API_BASE` | yes | Base URL of the deployed API Worker, e.g. `https://secretshare-api.<subdomain>.workers.dev` or your custom domain. No trailing slash, no `/api` suffix. Used twice: baked into the frontend bundle at build time, and passed to the frontend Worker as `API_ORIGIN` so its Content-Security-Policy allows the browser to reach that host. A split-horizon setup (`https://shareapi.example.com` serving the API next to `https://share.example.com` serving the app) needs nothing extra — one variable covers both. |
 | `CF_WORKER_NAME_API` | no | Overrides the API Worker's name (default `secretshare-api`). Determines its `*.workers.dev` hostname. |
 | `CF_WORKER_NAME_FRONTEND` | no | Overrides the frontend Worker's name (default `secretsharecf-frontend`). |
 | `TURNSTILE_ENABLED` | no | `true`/`false` (default `false`). Gates Turnstile on the API, and gates whether the workflow pushes `TURNSTILE_SECRET_KEY`. |
@@ -133,7 +133,7 @@ Consider making it a required status check (Settings → Branches → branch pro
 - **Predict the URLs.** Workers get `https://<worker-name>.<your-subdomain>.workers.dev`, and your subdomain is shown under Workers & Pages → Overview. Set both variables up front from the names you chose and the first deploy is already correct.
 - **Deploy twice.** Set them to anything (or set `VITE_API_BASE` and leave `ALLOWED_ORIGIN` at a placeholder), push, read the real URLs off the two Workers, correct the variables, then re-run the workflow from the **Actions** tab (**Deploy → Run workflow**, with *Deploy both apps* checked).
 
-If you attach custom domains afterwards, update both variables to the custom domains and re-run the workflow — `VITE_API_BASE` in particular is compiled into the frontend bundle, so changing it requires a rebuild, not just a settings change.
+If you attach custom domains afterwards, update both variables to the custom domains and re-run the workflow — `VITE_API_BASE` in particular is compiled into the frontend bundle *and* becomes the frontend Worker's CSP `connect-src`, so changing it requires a rebuild and redeploy, not just a settings change. Leaving it stale shows up as blocked requests in the browser console rather than as a failed deploy.
 
 ## 6. Verifying a deployment
 
@@ -142,7 +142,12 @@ If you attach custom domains afterwards, update both variables to the custom dom
 3. Open the frontend, create a secret, confirm a share link appears.
 4. Open the share link (ideally in a private window) and reveal it — the plaintext should round-trip.
 5. Reload the same reveal link — it should now report expired/not-found (view consumed).
-6. If anything 500s, check the API Worker's **Logs** tab. A CORS error in the browser console means `ALLOWED_ORIGIN` doesn't list the frontend's origin.
+6. If anything 500s, check the API Worker's **Logs** tab. A CORS error in the browser console means `ALLOWED_ORIGIN` doesn't list the frontend's origin; a *Content Security Policy* error mentioning `connect-src` means `VITE_API_BASE` doesn't match the API's real origin — fix the variable and re-run the workflow.
+7. `curl -sI https://<frontend-worker>/` shows a `content-security-policy` header, and so does a request for one of the `/assets/*.js` files.
+
+### A note on HSTS
+
+Neither Worker sends `Strict-Transport-Security`. It applies to a whole hostname — and with `includeSubDomains`, to every sibling of it — which makes it a decision for the domain rather than for one app deployed on it. Turn it on per-zone under **SSL/TLS → Edge Certificates → HTTP Strict Transport Security** once you're confident every host on that domain is HTTPS-only.
 
 ---
 

@@ -51,6 +51,11 @@ const FIELDS = {
   ],
   frontend: [
     { env: "CF_WORKER_NAME_FRONTEND", path: ["name"] },
+    // Origin the CSP lets the app talk to. Fed from the same VITE_API_BASE the
+    // bundle is built with; required, because the alternative to a loud
+    // failure is a deploy whose CSP still names the example's localhost and
+    // blocks every API call in the browser.
+    { env: "API_ORIGIN", path: ["vars", "API_ORIGIN"], required: true },
   ],
 };
 

@@ -47,3 +47,48 @@ describe("scheduled() cron sweep", () => {
     expect(await ids()).toEqual([]);
   });
 });
+
+describe("security headers", () => {
+  const ORIGIN = "https://test.example"; // matches ALLOWED_ORIGIN in vitest.config.ts
+
+  async function fetchWorker(path: string, init?: RequestInit) {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(new Request(`https://api.test${path}`, init), env, ctx);
+    await waitOnExecutionContext(ctx);
+    return response;
+  }
+
+  function expectHardened(response: Response) {
+    expect(response.headers.get("Content-Security-Policy")).toBe(
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    );
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(response.headers.get("X-Frame-Options")).toBe("DENY");
+  }
+
+  test("are set on a successful response", async () => {
+    expectHardened(await fetchWorker("/health"));
+  });
+
+  test("are set on a 404", async () => {
+    const response = await fetchWorker("/nope");
+    expect(response.status).toBe(404);
+    expectHardened(response);
+  });
+
+  test("are set on a route response, alongside CORS", async () => {
+    // The two middlewares are independent: hardening must not cost the browser
+    // its Access-Control-Allow-Origin, or every request would fail.
+    const response = await fetchWorker("/api/secrets/does-not-exist-000", {
+      headers: { Origin: ORIGIN },
+    });
+    expectHardened(response);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(ORIGIN);
+  });
+
+  test("no HSTS — that is the zone's decision, not the app's", async () => {
+    const response = await fetchWorker("/health");
+    expect(response.headers.get("Strict-Transport-Security")).toBeNull();
+  });
+});
