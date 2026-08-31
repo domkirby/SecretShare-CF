@@ -177,9 +177,15 @@ jobs:
         working-directory: apps/frontend
         run: npm test
 
+      # API_ORIGIN is a runtime Worker var (the CSP's connect-src), read on every
+      # request; VITE_API_BASE below is a build variable baked into the bundle.
+      # They come from the same repository variable on purpose: if the CSP named
+      # a different origin than the bundle fetches, every API call would be
+      # blocked in the browser.
       - name: Render wrangler.jsonc
         env:
           CF_WORKER_NAME_FRONTEND: ${{ vars.CF_WORKER_NAME_FRONTEND }}
+          API_ORIGIN: ${{ vars.VITE_API_BASE }}
         run: node scripts/render-wrangler.mjs frontend --require-all
 
       # Vite bakes VITE_* into the bundle at build time — they are read here,

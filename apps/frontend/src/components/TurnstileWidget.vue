@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref } from "vue";
+import { cspNonce } from "../lib/cspNonce";
 
 const props = defineProps<{ siteKey: string }>();
 const emit = defineEmits<{
@@ -22,6 +23,10 @@ function loadScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src = SCRIPT_SRC;
+    // Turnstile copies the nonce off its own script element onto the styles it
+    // injects for the widget, so without this the widget renders unstyled
+    // under our nonce-based style-src.
+    if (cspNonce) script.nonce = cspNonce;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();

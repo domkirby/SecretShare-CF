@@ -117,6 +117,9 @@ jobs:
         env:
           CF_WORKER_NAME_API: ${{ vars.CF_WORKER_NAME_API }}
           CF_WORKER_NAME_FRONTEND: ${{ vars.CF_WORKER_NAME_FRONTEND }}
+          # The frontend Worker's CSP has to name the API origin, and it is the
+          # same value the bundle is built against.
+          API_ORIGIN: ${{ vars.VITE_API_BASE }}
           D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME }}
           D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
           ALLOWED_ORIGIN: ${{ vars.ALLOWED_ORIGIN }}
@@ -160,6 +163,10 @@ jobs:
       - run: npm ci
         working-directory: apps/frontend
       - run: npm test
+        working-directory: apps/frontend
+      # The header Worker under worker/ is typechecked separately from the app —
+      # `npm run build` below only covers src/.
+      - run: npm run typecheck
         working-directory: apps/frontend
       # `npm run build` runs vue-tsc first, so this covers typechecking too.
       # VITE_API_BASE only has to be present and syntactically valid here —

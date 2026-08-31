@@ -1,13 +1,15 @@
 {
   // ---------------------------------------------------------------------------
-  // apps/frontend — Cloudflare Workers static-assets project (Vue 3 + Vite SPA)
+  // apps/frontend — Cloudflare Worker serving the built Vue 3 + Vite SPA
   //
   // THIS FILE IS A TEMPLATE. It is committed; `wrangler.jsonc` is gitignored.
   //
   //   Local dev:  you do not normally need this file at all — `npm run dev`
   //               runs Vite, not Wrangler. Copy it to wrangler.jsonc only if
   //               you want to preview the built `dist/` through Wrangler
-  //               (`npx wrangler dev`) or deploy by hand.
+  //               (`npx wrangler dev`) or deploy by hand. Note that only the
+  //               Wrangler path applies the security headers — `vite dev`
+  //               serves index.html with no Worker in front of it.
   //
   //   CI deploy:  .github/workflows/deploy.yml renders wrangler.jsonc from this
   //               file via `node scripts/render-wrangler.mjs frontend`.
@@ -19,13 +21,29 @@
 
   "compatibility_date": "2026-07-23",
 
-  // VITE_* build variables are NOT set here. Vite reads them from the process
-  // environment at build time and bakes them into the built JS; this project
-  // has no `main` Worker entry, so a "vars" block here would never be read at
-  // runtime anyway. Locally they come from .env.local; in CI they come from
-  // GitHub secrets/variables — see DEPLOYMENT.md.
+  // A thin Worker in front of the assets, whose only job is to stamp the
+  // Content-Security-Policy and the other security headers onto every
+  // response. Workers Static Assets cannot set those on its own.
+  "main": "./worker/index.ts",
+
+  // Runtime var, read by worker/index.ts on every request. This is NOT one of
+  // the VITE_* build variables: those are baked into the bundle by Vite at
+  // build time and a "vars" entry would never reach them. Both come from the
+  // same source — VITE_API_BASE — so the origin the app fetches from and the
+  // origin the CSP permits cannot drift apart.
+  // CI override: vars.VITE_API_BASE, via the API_ORIGIN environment variable.
+  "vars": {
+    "API_ORIGIN": "http://localhost:8787"
+  },
+
   "assets": {
     "directory": "./dist",
+    // Lets the Worker serve the built files itself.
+    "binding": "ASSETS",
+    // Without this, the asset router answers matching requests (every
+    // /assets/*.js and .css) before the Worker runs, and those responses would
+    // go out with no security headers at all.
+    "run_worker_first": true,
     // Serves index.html only when no real asset matches, which is what makes a
     // direct load of /s/:id work under vue-router's history mode. Do NOT
     // replace this with a public/_redirects rule — those are applied

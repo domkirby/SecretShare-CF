@@ -116,6 +116,18 @@ describe("committed examples", () => {
     assert.equal(config.assets.directory, "./dist");
     assert.equal(config.assets.not_found_handling, "single-page-application");
   });
+
+  test("frontend example runs the header Worker in front of the assets", () => {
+    // All three matter together: without `main` there is no code to set the
+    // security headers, without the binding that code cannot serve the files,
+    // and without run_worker_first the asset router answers /assets/*.js
+    // before the Worker ever sees the request.
+    const { config } = render("frontend");
+    assert.equal(config.main, "./worker/index.ts");
+    assert.equal(config.assets.binding, "ASSETS");
+    assert.equal(config.assets.run_worker_first, true);
+    assert.ok("API_ORIGIN" in config.vars, "vars.API_ORIGIN missing from the example");
+  });
 });
 
 describe("environment overrides", () => {
@@ -144,9 +156,13 @@ describe("environment overrides", () => {
     assert.equal(config.vars.FAILED_ATTEMPTS_CAP, "2");
   });
 
-  test("applies the frontend worker name", () => {
-    const { config } = render("frontend", { CF_WORKER_NAME_FRONTEND: "my-frontend" });
+  test("applies every frontend field", () => {
+    const { config } = render("frontend", {
+      CF_WORKER_NAME_FRONTEND: "my-frontend",
+      API_ORIGIN: "https://shareapi.example.com",
+    });
     assert.equal(config.name, "my-frontend");
+    assert.equal(config.vars.API_ORIGIN, "https://shareapi.example.com");
   });
 
   test("an unset variable leaves the example's value alone", () => {
@@ -218,9 +234,21 @@ describe("--require-all", () => {
     assert.equal(config, undefined, "no config should be written on failure");
   });
 
-  test("frontend has no required variables", () => {
-    const { status } = render("frontend", {}, { requireAll: true });
+  test("frontend fails rather than shipping a CSP pointing at localhost", () => {
+    const { status, stderr, config } = render("frontend", {}, { requireAll: true });
+    assert.equal(status, 1);
+    assert.match(stderr, /API_ORIGIN/);
+    assert.equal(config, undefined, "no config should be written on failure");
+  });
+
+  test("frontend passes once API_ORIGIN is set", () => {
+    const { status, config } = render(
+      "frontend",
+      { API_ORIGIN: "https://shareapi.example.com" },
+      { requireAll: true }
+    );
     assert.equal(status, 0);
+    assert.equal(config.vars.API_ORIGIN, "https://shareapi.example.com");
   });
 });
 
@@ -361,7 +389,8 @@ describe("deploy workflow invocation", () => {
   });
 
   test("frontend renders to the default path", () => {
-    const { config } = runDefaultOutput("frontend", {});
+    const { config } = runDefaultOutput("frontend", { API_ORIGIN: "https://shareapi.example.com" });
     assert.equal(config.assets.directory, "./dist");
+    assert.equal(config.vars.API_ORIGIN, "https://shareapi.example.com");
   });
 });
