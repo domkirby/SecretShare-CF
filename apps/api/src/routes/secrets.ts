@@ -26,8 +26,15 @@ interface CreateSecretBody {
 
 // Client-generated: 16 random bytes, base64url without padding. The client
 // binds this id into the ciphertext as AES-GCM AAD, so it must exist before
-// encryption and cannot be assigned server-side.
-const ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+// encryption and cannot be assigned server-side. Since it arrives from the
+// client, the server re-checks the shape rather than trusting it.
+//
+// 16 bytes is 128 bits, which unpadded base64url spells in 22 characters: the
+// first 21 carry 126 bits and the last carries the remaining 2 bits followed by
+// 4 zero bits. Only A (0b000000), Q (0b010000), g (0b100000) and w (0b110000)
+// have those low bits clear, so any other final character is a non-canonical
+// encoding that does not decode to exactly 16 bytes.
+const ID_PATTERN = /^[A-Za-z0-9_-]{21}[AQgw]$/;
 
 const MIN_KDF_ITERATIONS = 100_000;
 const MAX_KDF_ITERATIONS = 2_000_000;
@@ -48,7 +55,7 @@ secrets.post("/", async (c) => {
   const maxViewsCap = Number(c.env.MAX_VIEWS_CAP);
 
   if (typeof body.id !== "string" || !ID_PATTERN.test(body.id)) {
-    return c.json({ error: "id must be 22 base64url characters" }, 400);
+    return c.json({ error: "id must be 22 base64url characters encoding 16 bytes" }, 400);
   }
 
   if (typeof body.ciphertext !== "string" || body.ciphertext.length === 0) {
