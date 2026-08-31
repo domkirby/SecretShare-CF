@@ -99,11 +99,24 @@ describe("POST /api/secrets (create)", () => {
     ["too short", "a".repeat(21)],
     ["too long", "a".repeat(23)],
     ["non-base64url chars", "a".repeat(21) + "$"],
+    // The final character of a 22-char base64url string carries 2 significant
+    // bits plus 4 that must be zero, so anything outside [AQgw] there decodes
+    // to something other than exactly 16 bytes.
+    ["right length but non-canonical trailing bits", "a".repeat(22)],
+    ["padded to 24 characters", "a".repeat(21) + "A=="],
   ])("rejects an id that is %s", async (_label, id) => {
     const res = await create({ id, ciphertext: rawBody, maxViews: 1 });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toMatch(/22 base64url/);
   });
+
+  test.each(["A", "Q", "g", "w"])(
+    "accepts a canonical 16-byte id ending in %s",
+    async (last) => {
+      const res = await create({ id: "a".repeat(21) + last, ciphertext: rawBody, maxViews: 1 });
+      expect(res.status).toBe(201);
+    }
+  );
 
   test("rejects a non-string id", async () => {
     const res = await create({ id: 123, ciphertext: rawBody, maxViews: 1 });

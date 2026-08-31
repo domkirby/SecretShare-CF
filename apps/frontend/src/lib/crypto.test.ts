@@ -276,7 +276,9 @@ describe("password mode", () => {
 describe("id and password generation", () => {
   test("ids match the format the API validates", async () => {
     for (let i = 0; i < 50; i++) {
-      expect(generateSecretId()).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      // The API accepts only canonical encodings of 16 bytes, so the final
+      // character must be one whose low 4 bits are zero.
+      expect(generateSecretId()).toMatch(/^[A-Za-z0-9_-]{21}[AQgw]$/);
     }
   });
 

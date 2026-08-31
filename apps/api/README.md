@@ -112,6 +112,7 @@ Create a secret.
 // request
 {
   "id": "kQ2f...",           // client-generated, 22 base64url chars (128 bits); bound into the ciphertext as AES-GCM AAD
+                             // rejected with 400 unless it is a canonical unpadded base64url encoding of exactly 16 bytes
   "ciphertext": "v1:ivB64:ctB64",
   "kdf": { "salt": "b64", "iterations": 600000, "verifier": "b64" }, // optional — omit entirely for random-key mode
   "maxViews": 1,
